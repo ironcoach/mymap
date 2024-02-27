@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "529913905250",
+    "project_id": "mytestmap-f1224",
+    "storage_bucket": "mytestmap-f1224.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:529913905250:android:7a61a39288e2a31884d13b",
+        "android_client_info": {
+          "package_name": "com.ranger.mymap"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "529913905250-e05qjfc27t689sh0d3sbt09dqcqnil6h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ranger.mymap",
+            "certificate_hash": "7d1df3db639f424ede3e6405804f7e4bd3dc7896"
+          }
+        },
+        {
+          "client_id": "529913905250-lgh59dulv065ft97aoa25q5ckg6hq65l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA0ipb_hQc_F2o83lYn4_-CAkNhXDfOtMk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "529913905250-lgh59dulv065ft97aoa25q5ckg6hq65l.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "529913905250-mul095eg0bq657e1d82hgp3j50ue9htd.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.ranger.mymap"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

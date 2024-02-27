@@ -4,6 +4,26 @@ import 'package:google_fonts/google_fonts.dart';
 class AppTheme {
   const AppTheme._();
 
+  static final testTheme = FlexThemeData.light(
+    scheme: FlexScheme.outerSpace,
+    surfaceMode: FlexSurfaceMode.levelSurfacesLowScaffold,
+    blendLevel: 7,
+    fontFamily: GoogleFonts.raleway().fontFamily,
+    subThemesData: const FlexSubThemesData(
+      blendOnLevel: 10,
+      blendOnColors: false,
+      useTextTheme: true,
+      useM2StyleDividerInM3: true,
+      alignedDropdown: true,
+      useInputDecoratorThemeInDialogs: true,
+    ),
+    visualDensity: FlexColorScheme.comfortablePlatformDensity,
+    useMaterial3: true,
+    swapLegacyOnMaterial3: true,
+    // To use the Playground font, add GoogleFonts package and uncomment
+    // fontFamily: GoogleFonts.notoSans().fontFamily,
+  );
+
   static final light = FlexThemeData.light(
     scheme: FlexScheme.indigoM3,
     surfaceMode: FlexSurfaceMode.highScaffoldLowSurfacesVariantDialog,
@@ -17,7 +37,8 @@ class AppTheme {
     swapColors: true,
     lightIsWhite: true,
     visualDensity: FlexColorScheme.comfortablePlatformDensity,
-    fontFamily: GoogleFonts.dekko().fontFamily,
+    fontFamily: GoogleFonts.raleway().fontFamily,
+    //fontFamily: GoogleFonts.dekko().fontFamily,
     subThemesData: const FlexSubThemesData(
       useTextTheme: true,
       fabUseShape: true,
@@ -48,7 +69,7 @@ class AppTheme {
     swapColors: true,
     //lightIsWhite: true,
     visualDensity: FlexColorScheme.comfortablePlatformDensity,
-    fontFamily: GoogleFonts.dekko().fontFamily,
+    fontFamily: GoogleFonts.raleway().fontFamily,
     subThemesData: const FlexSubThemesData(
       useTextTheme: true,
       fabUseShape: true,

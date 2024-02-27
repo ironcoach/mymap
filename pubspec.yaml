@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.1.4 <4.0.0'
+  sdk: '>=3.2.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -43,6 +43,8 @@ dependencies:
   flutter_riverpod: ^2.4.10
   http: ^1.1.0
   lottie: ^2.7.0
+  firebase_core: ^2.25.4
+  firebase_auth: ^4.17.5
 
 
 dev_dependencies:
@@ -71,6 +73,7 @@ flutter:
   assets:
     - assets/animassets/mapanimation.json
     - assets/mapicons/
+    - assets/images/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
