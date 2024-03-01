@@ -43,8 +43,10 @@ dependencies:
   flutter_riverpod: ^2.4.10
   http: ^1.1.0
   lottie: ^2.7.0
-  firebase_core: ^2.25.4
-  firebase_auth: ^4.17.5
+  firebase_core: ^2.25.5
+  firebase_auth: ^4.17.6
+  cloud_firestore: ^4.15.6
+  flutter_email_validator: ^2.1.24
 
 
 dev_dependencies:

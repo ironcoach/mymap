@@ -4,14 +4,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
-import 'package:geocoding/geocoding.dart';
+
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:mymap/constants/constants.dart';
 import 'package:mymap/models/auto_complete_result.dart';
 import 'package:mymap/models/ride_data.dart';
+import 'package:mymap/pages/app_drawer.dart';
+import 'package:mymap/pages/profile_page.dart';
 import 'package:mymap/providers/providers.dart';
 import 'package:mymap/services/map_services.dart';
 import 'package:mymap/utils/extensions.dart';
-import 'package:mymap/widgets/common_text_field.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter/gestures.dart';
@@ -34,17 +37,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   Set<Marker> _markers = <Marker>{};
   final Set<Marker> _saveMarkers = <Marker>{};
-
-  //LatLngBounds? _currentBounds;
-
-  // history.add(HistoryDetail(
-  //   name: exName, round: historyRounds, reps: reps, duration: strTime));
-
-  // final LatLng _fullCycle = const LatLng(40.017555, -105.258336);
-  // final LatLng _univCycle = const LatLng(40.01721559800597, -105.2839693419586);
-  // final LatLng _cennaCycle =
-  //     const LatLng(40.135667689123494, -105.10335022137203);
-  // final LatLng _gdRide = const LatLng(40.0805057836106, -105.23549907690392);
 
   //Debounce to throttle async calls during search
   Timer? _debounce;
@@ -72,42 +64,15 @@ class MapScreenState extends ConsumerState<MapScreen> {
     FirebaseAuth.instance.signOut();
   }
 
-  // void _updateMarkersPosition() async {
-  //   final GoogleMapController controller = await mapController.future;
-  //   final LatLngBounds visibleBounds = await controller.getVisibleRegion();
-  //   setState(() {
-  //     _currentBounds = visibleBounds;
-  //   });
-  //   final Set<Marker> newMarkers = Set<Marker>.from(_markers.where(
-  //     (marker) => visibleBounds.contains(marker.position),
-  //   ));
-  //   setState(() {
-  //     _markers = newMarkers;
-  //   });
-  // }
+  // go to Profile Page
+  void goToProfilePage() {
+    Navigator.pop(context);
 
-  // void _updateMarkers(GoogleMapController controller) {
-  //   final Set<Marker> newMarkers = <Marker>{};
-  //   // Add your markers here
-  //   newMarkers.add(
-  //     const Marker(
-  //       markerId: MarkerId('marker1'),
-  //       position: LatLng(37.4219999, -122.0840575),
-  //       infoWindow: InfoWindow(title: 'Marker 1'),
-  //     ),
-  //   );
-  //   newMarkers.add(
-  //     const Marker(
-  //       markerId: MarkerId('marker2'),
-  //       position: LatLng(37.42796133580664, -122.085749655962),
-  //       infoWindow: InfoWindow(title: 'Marker 2'),
-  //     ),
-  //   );
-  //   setState(() {
-  //     _markers = newMarkers;
-  //     _updateMarkersPosition();
-  //   });
-  // }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfilePage()),
+    );
+  }
 
   @override
   void initState() {
@@ -367,59 +332,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  // void _moveToAddress() async {
-  //   String address = _searchController.text;
-  //   try {
-  //     List<Location> locations = await locationFromAddress(address);
-  //     print("Made it here");
-  //     if (locations.isNotEmpty) {
-  //       Location location = locations.first;
-  //       LatLng latLng = LatLng(location.latitude, location.longitude);
-  //       GoogleMapController newController = await mapController.future;
-  //       //newController.animateCamera(CameraUpdate.newCameraPosition(latLng));
-  //       newController.animateCamera(CameraUpdate.newLatLng(latLng));
-  //       setState(() {});
-  //     } else {
-  //       _showErrorDialog('Address not found');
-  //     }
-  //   } catch (e) {
-  //     _showErrorDialog('Error: $e');
-  //   }
-  // }
-
-  // void _showErrorDialog(String message) {
-  //   showDialog(
-  //     context: context,
-  //     builder: (context) {
-  //       return AlertDialog(
-  //         title: const Text('Error'),
-  //         content: Text(message),
-  //         actions: [
-  //           TextButton(
-  //             onPressed: () {
-  //               Navigator.of(context).pop();
-  //             },
-  //             child: const Text('OK'),
-  //           ),
-  //         ],
-  //       );
-  //     },
-  //   );
-  // }
-
-  // void _checkLatLngInViewableArea() async {
-  //   final GoogleMapController controller = await mapController.future;
-  //   LatLngBounds bounds = await controller.getVisibleRegion();
-  //   LatLng cennaCycle = const LatLng(40.135667689123494, -105.10335022137203);
-
-  //   bool isInBounds = bounds.contains(cennaCycle);
-  //   if (isInBounds) {
-  //     print("It's in the box");
-  //   } else {
-  //     print("Not in the box");
-  //   }
-  // }
-
   Widget showDetails() {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -509,6 +421,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   Widget placeMap() {
     return GoogleMap(
+      mapType: MapType.normal,
       onMapCreated: _onMapCreated,
       myLocationButtonEnabled: false,
       scrollGesturesEnabled: true,
@@ -527,8 +440,14 @@ class MapScreenState extends ConsumerState<MapScreen> {
         _setMarker();
       },
       onTap: (point) {
-        tappedPoint = point;
-        gotoSearchedPlace(point.latitude, point.longitude);
+        setState(() {
+          for (var marker in _markers) {
+            _markers
+                .remove(marker.copyWith(infoWindowParam: InfoWindow.noText));
+          }
+          tappedPoint = point;
+          gotoSearchedPlace(point.latitude, point.longitude);
+        });
       },
     );
   }
@@ -555,13 +474,17 @@ class MapScreenState extends ConsumerState<MapScreen> {
       appBar: AppBar(
         toolbarHeight: 50.0,
         centerTitle: false,
-        title: const Text('The Ride Finder'),
-        actions: [
-          IconButton(
-            onPressed: signUserOut,
-            icon: const Icon(Icons.logout),
-          )
-        ],
+        title: const Text(appTitle),
+        // actions: [
+        //   IconButton(
+        //     onPressed: signUserOut,
+        //     icon: const Icon(Icons.logout),
+        //   )
+        // ],
+      ),
+      drawer: AppDrawer(
+        onProfileTap: goToProfilePage,
+        onSignOut: signUserOut,
       ),
       body: SingleChildScrollView(
         child: Column(
