@@ -1,3 +1,4 @@
+import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
 import 'package:mymap/config/config.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,10 +24,16 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print(
+        "Date: ${DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day, DateTime.now().hour, DateTime.now().minute)}");
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Find My Ride',
-      theme: AppTheme.light,
+      //theme: AppTheme.light,
+      themeMode: ThemeMode.light,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+
       //theme: ThemeData(primaryColor: Colors.white),
       //home: const SplashScreen(),
       //home: const MapScreen(),

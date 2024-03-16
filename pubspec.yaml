@@ -47,6 +47,8 @@ dependencies:
   firebase_auth: ^4.17.6
   cloud_firestore: ^4.15.6
   flutter_email_validator: ^2.1.24
+  geolocator: ^11.0.0
+
 
 
 dev_dependencies:

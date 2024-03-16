@@ -66,6 +66,7 @@ class _RegisterPageState extends State<RegisterPage> {
           'lastname': lastNameController.text.trim(),
           'phone': phoneController.text.trim(),
           'email': myUser.email,
+          'id': myUser.uid,
         });
       } else {
         showErrorMessage("Passwords don't match");

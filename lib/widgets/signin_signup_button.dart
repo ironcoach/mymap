@@ -10,7 +10,7 @@ class SignInSignUpButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
-        backgroundColor: context.colorScheme.secondary,
+        //backgroundColor: context.colorScheme.secondary,
         minimumSize: const Size.fromHeight(50),
       ),
       icon: const Icon(
@@ -19,7 +19,7 @@ class SignInSignUpButton extends StatelessWidget {
       ),
       label: Text(
         text,
-        style: const TextStyle(fontSize: 24),
+        //style: const TextStyle(fontSize: 24),
       ),
       onPressed: onTap,
     );

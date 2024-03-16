@@ -10,7 +10,9 @@ class AppDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: Colors.lightBlueAccent,
+      //backgroundColor: Colors.lightBlueAccent,
+      backgroundColor: const Color(0xFFDAE2FF),
+      width: 250,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -19,7 +21,7 @@ class AppDrawer extends StatelessWidget {
               const DrawerHeader(
                 child: Icon(
                   Icons.person,
-                  color: Colors.white,
+                  //color: Colors.white,
                   size: 64,
                 ),
               ),
