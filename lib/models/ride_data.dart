@@ -57,7 +57,7 @@ class Ride {
   final String? desc;
   final String? snippet;
   final DateTime? startTime;
-  final String? dow;
+  final DayOfWeekType? dow;
   final String? contact;
   final String? phone;
   final String? startPointDesc;
@@ -92,7 +92,7 @@ class Ride {
     String? desc,
     String? snippet,
     DateTime? startTime,
-    String? dow,
+    DayOfWeekType? dow,
     String? contact,
     String? phone,
     String? startpointdesc,
@@ -109,6 +109,7 @@ class Ride {
       desc: desc ?? this.desc,
       snippet: snippet ?? this.snippet,
       startTime: startTime ?? this.startTime,
+      dow: dow ?? this.dow,
       contact: contact ?? this.contact,
       phone: phone ?? this.phone,
       startPointDesc: startPointDesc ?? startPointDesc,
@@ -148,7 +149,7 @@ class Ride {
       desc: map["desc"] as String,
       snippet: map["snippet"] as String,
       startTime: map["startTime"] as DateTime,
-      dow: map["dow"] as String,
+      dow: map["dow"] as DayOfWeekType,
       contact: map["contactName"] as String,
       phone: map["contactPhone"] as String,
       startPointDesc: map["startPointDesc"] as String,

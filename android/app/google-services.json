@@ -39,10 +39,10 @@
               "client_type": 3
             },
             {
-              "client_id": "529913905250-mul095eg0bq657e1d82hgp3j50ue9htd.apps.googleusercontent.com",
+              "client_id": "529913905250-igvi0r5rjojfqhtrdv3jb08il3sdno6v.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.ranger.mymap"
+                "bundle_id": "com.example.mymap.RunnerTests"
               }
             }
           ]

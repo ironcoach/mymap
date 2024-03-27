@@ -69,6 +69,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
   Timer? _debounce;
 
   TimeOfDay _selectedTime = TimeOfDay.now();
+  DateTime _selectedDT = DateTime.now();
 
   //Toggling UI as we need;
   bool searchToggle = false;
@@ -81,13 +82,17 @@ class MapScreenState extends ConsumerState<MapScreen> {
 /////////////
   String? rideTitle;
   String? rideDesc;
-  String? rideDow;
+  DayOfWeekType? rideDow;
   TimeOfDay? rideStartTime;
+  String? rideStartPointDesc;
   String? rideContact;
   String? ridePhone;
   bool? rideVerified = false;
+  String? rideVerifiedBy;
+  String? rideSnippet;
   RideType? rideType;
   int? rideDistance;
+  LatLng? rideLatlng;
 
   List<Uint8List> pinImages = [];
   List<String> assetImages = [
@@ -139,6 +144,44 @@ class MapScreenState extends ConsumerState<MapScreen> {
       context,
       MaterialPageRoute(builder: (context) => const ProfilePage()),
     );
+  }
+
+  Future<void> _selectTime(BuildContext context) async {
+    //_selectedDT = _selectedDT.copyWith(hour: 5, minute: 0);
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      await showCupertinoModalPopup(
+        context: context,
+        builder: (BuildContext builder) => SizedBox(
+          height: 216,
+          child: CupertinoDatePicker(
+            backgroundColor: context.colorScheme.surfaceVariant,
+            initialDateTime: _selectedDT,
+            mode: CupertinoDatePickerMode.time,
+            onDateTimeChanged: (DateTime newTime) {
+              setState(() {
+                _selectedDT = newTime;
+                _selectedTime = TimeOfDay.fromDateTime(_selectedDT);
+              });
+            },
+          ),
+        ),
+      );
+    } else {
+      final TimeOfDay? pickedTime = await showTimePicker(
+        context: context,
+        initialTime: _selectedTime,
+      ).then((value) {
+        if (value != null) {
+          setState(() {
+            _selectedDT = DateTime(_selectedDT.year, _selectedDT.month,
+                _selectedDT.day, value.hour, value.minute);
+            _selectedTime = TimeOfDay.fromDateTime(_selectedDT);
+          });
+        }
+        return;
+      });
+      return;
+    }
   }
 
   void _createMarkers() async {
@@ -244,23 +287,38 @@ class MapScreenState extends ConsumerState<MapScreen> {
     //return await Geolocator.getCurrentPosition();
   }
 
+  Future<BitmapDescriptor> _getCustomMarker(image) async {
+    ByteData data = await rootBundle.load(image);
+    ui.Codec codec = await ui.instantiateImageCodec(data.buffer.asUint8List(),
+        targetWidth: 40);
+    ui.FrameInfo fi = await codec.getNextFrame();
+    Uint8List? bytes =
+        (await fi.image.toByteData(format: ui.ImageByteFormat.png))
+            ?.buffer
+            .asUint8List();
+    return BitmapDescriptor.fromBytes(bytes!);
+  }
+
   void _getRideData() async {
     _saveMarkers.clear();
 
     BitmapDescriptor markerIcon;
 
+    // BitmapDescriptor markerGravel =
+    //     await _getCustomMarker('assets/mapicons/bikeRising.png');
+
     BitmapDescriptor markerGravel = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/roadRide.png');
+        'assets/mapicons/bikeRising.png');
     BitmapDescriptor markerRoad = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(devicePixelRatio: 1.0),
         'assets/mapicons/roadRide.png');
     BitmapDescriptor markerMTB = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/food.png');
+        'assets/mapicons/greenBike.png');
     BitmapDescriptor markerEvent = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/tickets.png');
+        'assets/mapicons/blueRide.png');
 
     ridesDataFS.get().then(
       (querySnapshot) {
@@ -297,13 +355,14 @@ class MapScreenState extends ConsumerState<MapScreen> {
             infoWindow: InfoWindow(
               onTap: () async {
                 rideID = doc.id;
+
                 //showDetailsToggle = !showDetailsToggle;
                 await getRideDetails();
                 showDetails();
                 setState(() {});
               },
               title: data["title"],
-              snippet: data["desc"],
+              snippet: data["snippet"],
             ),
             onTap: () {},
             icon: markerIcon,
@@ -338,7 +397,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(37.8199, -122.4783),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -358,7 +417,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(40.785091, -73.968285),
         verified: false,
         verifiedBy: "",
@@ -378,7 +437,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Lakeshore drive near the pier.",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(41.8833, -87.6197),
         verified: false,
         verifiedBy: "",
@@ -398,7 +457,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(42.3601, -71.0589),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -417,7 +476,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(34.0522, -118.2437),
         verified: true,
         verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
@@ -437,7 +496,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(45.5175, -122.6651),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -457,7 +516,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(44.9497, -93.3133),
         verified: true,
         verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
@@ -477,7 +536,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.friday,
         latlng: const LatLng(30.2649, -97.7479),
         verified: false,
         verifiedBy: "",
@@ -497,7 +556,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(47.6607, -122.2886),
         verified: true,
         verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
@@ -517,7 +576,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.tuesday,
         latlng: const LatLng(39.7392, -104.9903),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -537,7 +596,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Start at the shop",
         contact: "Cenna Da Man!",
         phone: "555 123-4567",
-        dow: "Wednesday",
+        dow: DayOfWeekType.wednesday,
         latlng: const LatLng(40.135667689123494, -105.10335022137203),
         verified: true,
         verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
@@ -557,7 +616,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.thursday,
         latlng: const LatLng(40.0805057836106, -105.23549907690392),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -577,7 +636,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.monday,
         latlng: const LatLng(40.017555, -105.258336),
         verified: false,
         verifiedBy: "",
@@ -597,7 +656,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Ranger Adams",
         phone: "616 956-5434",
-        dow: "Random",
+        dow: DayOfWeekType.sunday,
         latlng: const LatLng(42.405876, -85.277250),
         verified: true,
         verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
@@ -617,7 +676,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         startPointDesc: "Just under the bridge",
         contact: "Jeff Miller",
         phone: "555 123-4567",
-        dow: "Monday",
+        dow: DayOfWeekType.saturday,
         latlng: const LatLng(32.231719, -110.959289),
         verified: false,
         verifiedBy: "",
@@ -652,29 +711,51 @@ class MapScreenState extends ConsumerState<MapScreen> {
   //       .push(MaterialPageRoute(builder: (context) => const AddNewRide()));
   // }
 
-  Future<void> _selectTime(BuildContext context) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime,
-    );
-    if (picked != null && picked != _selectedTime) {
-      setState(() {
-        _selectedTime = picked;
-      });
-    }
-  }
+  // Future<void> _selectTime(BuildContext context) async {
+  //   final TimeOfDay? picked = await showTimePicker(
+  //     context: context,
+  //     initialTime: _selectedTime,
+  //   );
+  //   if (picked != null && picked != _selectedTime) {
+  //     setState(() {
+  //       _selectedTime = picked;
+  //     });
+  //   }
+  // }
 
-  void newRideDialog(LatLng latlng) {
-    RideType tmpRideType = RideType.gravelRide;
+  void newRideDialog(LatLng latlng, bool isEdit) {
+    RideType tmpRideType = RideType.roadRide;
     DayOfWeekType tmpDOW = DayOfWeekType.monday;
-    rideType = tmpRideType;
-    rideStartTime = TimeOfDay.now();
-    rideDow = DayOfWeekType.monday.titleName;
+    // rideDow = tmpDOW;
+    // rideType = tmpRideType;
+    // rideStartTime = _selectedTime;
+    //_selectedTime = rideStartTime!;
+    // Init Fields for screen
+    if (isEdit) {
+      titleController.text = rideTitle!;
+      descController.text = rideDesc!;
+      snippetController.text = rideSnippet!;
+      startPointController.text = rideStartPointDesc!;
+      contactController.text = rideContact!;
+      phoneController.text = ridePhone!;
+      distanceController.text = rideDistance.toString();
+      tmpRideType = rideType!;
+      tmpDOW = rideDow!;
+      _selectedTime = rideStartTime!;
+    } else {
+      rideDistance = 0;
+      // rideDow = tmpDOW;
+      // rideType = tmpRideType;
+      // rideStartTime = _selectedTime;
+    }
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Add a new Ride"),
+        backgroundColor: context.colorScheme.onTertiary,
+        title: isEdit
+            ? const Text("Edit Ride Details")
+            : const Text("Add a new Ride"),
         scrollable: true,
         content: StatefulBuilder(
           builder: (BuildContext context, setState) {
@@ -693,21 +774,37 @@ class MapScreenState extends ConsumerState<MapScreen> {
                     hintText: "Info Window Snippet",
                     obscureText: false),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  padding:
+                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
                   child: DropdownButtonFormField(
+                    decoration: InputDecoration(
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(
+                            color: context.colorScheme.outlineVariant),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide:
+                            BorderSide(color: context.colorScheme.outline),
+                      ),
+                      fillColor: context.colorScheme.onInverseSurface,
+                      filled: true,
+                      // hintText: "Day of Week",
+                      // hintStyle:
+                      //     TextStyle(color: context.colorScheme.outlineVariant),
+                    ),
                     dropdownColor: context.colorScheme.onInverseSurface,
                     padding: EdgeInsets.zero,
                     value: tmpDOW,
                     onSaved: (newDay) {
                       setState(() {
                         tmpDOW = newDay!;
-                        rideDow = tmpDOW.titleName;
+                        rideDow = tmpDOW;
                       });
                     },
                     onChanged: (newDay) {
                       setState(() {
                         tmpDOW = newDay!;
-                        rideDow = tmpDOW.titleName;
+                        rideDow = tmpDOW;
                       });
                     },
                     items: DayOfWeekType.values.map((DayOfWeekType type) {
@@ -721,40 +818,64 @@ class MapScreenState extends ConsumerState<MapScreen> {
                 /////// Time
                 ///
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 25.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${_selectedTime.hourOfPeriod}:${_selectedTime.minute.toString().padLeft(2, '0')} ${_selectedTime.period == DayPeriod.am ? 'AM' : 'PM'}',
-                        //style: const TextStyle(fontSize: 20),
-                      ),
-                      IconButton(
-                        onPressed: () async {
-                          await _selectTime(context).then((value) {
-                            setState(() {
-                              rideStartTime = _selectedTime;
-                            });
+                  padding:
+                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border:
+                          Border.all(color: context.colorScheme.outlineVariant),
+
+                      color: context.colorScheme.onInverseSurface,
+                      //borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: GestureDetector(
+                      onTap: () async {
+                        await _selectTime(context).then((value) {
+                          setState(() {
+                            rideStartTime = _selectedTime;
                           });
-                        },
-                        icon: const Icon(
-                            IconData(0xe662, fontFamily: 'MaterialIcons')),
+                        });
+                      },
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(20.0),
+                            child: Text(
+                              '${_selectedTime.hourOfPeriod}:${_selectedTime.minute.toString().padLeft(2, '0')} ${_selectedTime.period == DayPeriod.am ? 'AM' : 'PM'}',
+                              //style: const TextStyle(fontSize: 20),
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.only(right: 10.0),
+                            child: Icon(
+                                IconData(0xe662, fontFamily: 'MaterialIcons')),
+                          )
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
 
                 ///
                 /////////
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  padding:
+                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
                   child: DropdownButtonFormField(
-                    dropdownColor: context.colorScheme.onInverseSurface,
                     decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(
+                            color: context.colorScheme.outlineVariant),
                       ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide:
+                            BorderSide(color: context.colorScheme.outline),
+                      ),
+                      fillColor: context.colorScheme.onInverseSurface,
+                      filled: true,
                     ),
+                    dropdownColor: context.colorScheme.onInverseSurface,
                     value: tmpRideType,
                     onSaved: (newRideType) {
                       setState(() {
@@ -802,7 +923,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         ),
         actions: [
           _cancelNewRideButton(),
-          _saveNewRideButton(latlng),
+          _saveNewRideButton(latlng, isEdit),
         ],
       ),
     );
@@ -827,7 +948,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  Widget _saveNewRideButton(LatLng latLng) {
+  Widget _saveNewRideButton(LatLng latLng, bool isEdit) {
     return MaterialButton(
       onPressed: () async {
         final FireStoreService fs = FireStoreService();
@@ -843,15 +964,24 @@ class MapScreenState extends ConsumerState<MapScreen> {
           phone: phoneController.text.trim(),
           latlng: latLng,
           verified: false,
-          verifiedBy: "",
+          verifiedBy: rideVerifiedBy,
           createdBy: user.uid,
           rideType: rideType,
           rideDistance: int.tryParse(distanceController.text.trim()),
         );
-        await fs.addRide(ride).then((value) {
-          _getRideData();
-        });
-        //_getRideData();
+        if (isEdit) {
+          await fs.updateRide(rideID, ride).then(
+            (value) {
+              _getRideData();
+            },
+          );
+        } else {
+          await fs.addRide(ride).then(
+            (value) {
+              _getRideData();
+            },
+          );
+        }
 
         Navigator.pop(context);
         //clear controllers
@@ -883,13 +1013,22 @@ class MapScreenState extends ConsumerState<MapScreen> {
   Future getRideDetails() async {
     await ridesDataFS.doc(rideID).get().then((ride) {
       // you can access the values by
+
+      GeoPoint pos = ride["latlng"];
+      LatLng latlng = LatLng(pos.latitude, pos.longitude);
+      rideLatlng = latlng;
       rideTitle = ride['title'];
       rideDesc = ride['desc'];
-      rideDow = ride['dow'];
+      rideSnippet = ride['snippet'];
+      rideDistance = ride['distance'];
+      rideDow = DayOfWeekType.values[ride['dow']];
+      rideStartPointDesc = ride['startPointDesc'];
       rideContact = ride['contactName'];
       ridePhone = ride['contactPhone'];
       rideVerified = ride['verified'];
-
+      rideVerifiedBy = ride["verifiedBy"];
+      DateTime myDateTime = (ride['startTime']).toDate();
+      rideStartTime = TimeOfDay.fromDateTime(myDateTime);
       rideType = RideType.values[ride['rideType']];
     });
   }
@@ -961,7 +1100,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
         title: Text("$rideTitle"),
         scrollable: true,
         content: Column(
-          //mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
@@ -984,23 +1122,11 @@ class MapScreenState extends ConsumerState<MapScreen> {
                     ),
             ),
             const Gap(5),
-            // RichText(
-            //   text: TextSpan(
-            //     style: DefaultTextStyle.of(context).style,
-            //     children: [
-            //       const TextSpan(
-            //         text: 'Ride Type: ',
-            //         style: TextStyle(fontWeight: ui.FontWeight.w700),
-            //       ),
-            //       TextSpan(
-            //         text: rideType!.titleName,
-            //         //style: TextStyle(color: Colors.blue),
-            //       ),
-            //     ],
-            //   ),
-            // ),
+
             DisplayDlgText(topic: "Ride Type", text: rideType!.titleName),
-            DisplayDlgText(topic: "Day of Week", text: "$rideDow"),
+            DisplayDlgText(topic: "Distance", text: rideDistance.toString()),
+            DisplayDlgText(topic: "Start Point", text: rideStartPointDesc!),
+            DisplayDlgText(topic: "Day of Week", text: rideDow!.titleName),
             //'${rideStartTime.hourOfPeriod}:${rideStartTime.minute.toString().padLeft(2, '0')} ${rideStartTime.period == DayPeriod.am ? 'AM' : 'PM'}',
             DisplayDlgText(
                 topic: "Start Time",
@@ -1008,8 +1134,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
                     '${rideStartTime!.hourOfPeriod}:${rideStartTime!.minute.toString().padLeft(2, '0')} ${rideStartTime!.period == DayPeriod.am ? 'AM' : 'PM'}'),
             DisplayDlgText(topic: "Contact", text: "$rideContact"),
             const Divider(
-              // indent: 10.0,
-              // endIndent: 10.0,
               height: 5.0,
               thickness: 5.0,
             ),
@@ -1022,8 +1146,19 @@ class MapScreenState extends ConsumerState<MapScreen> {
         actions: [
           //_deleteRideButton(),
           _cancelDetailsButton(),
+          _editDetailsButton(),
         ],
       ),
+    );
+  }
+
+  Widget _editDetailsButton() {
+    return ElevatedButton(
+      onPressed: () {
+        Navigator.pop(context);
+        newRideDialog(rideLatlng!, true);
+      },
+      child: const Text("Edit"),
     );
   }
 
@@ -1034,12 +1169,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
       },
       child: const Text("Close"),
     );
-    // return MaterialButton(
-    //   onPressed: () {
-    //     Navigator.pop(context);
-    //   },
-    //   child: const Text('Cancel'),
-    // );
   }
 
   Widget _deleteRideButton() {
@@ -1059,158 +1188,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         Navigator.pop(context);
       },
     );
-
-    // return MaterialButton(
-    //   onPressed: () async {
-    //     final FireStoreService fs = FireStoreService();
-    //     print("RideID: $rideID");
-    //     await fs.deleteRide(rideID).then((value) {
-    //       _getRideData();
-    //     });
-    //     //_getRideData();
-    //     setState(() {});
-    //     Navigator.pop(context);
-    //   },
-    //   child: const Text('Delete'),
-    // );
   }
-
-  // Widget showDetails1() {
-  //   final screenHeight = MediaQuery.of(context).size.height;
-  //   final screenWidth = MediaQuery.of(context).size.width;
-
-  //   final FireStoreService fs = FireStoreService();
-
-  //   return FutureBuilder(
-  //     future: getRideDetails(),
-  //     builder: (context, snapshot) {
-  //       return Positioned(
-  //         top: 100.0,
-  //         left: 15.0,
-  //         child: Container(
-  //           height: screenHeight * .40,
-  //           width: screenWidth * .75,
-  //           decoration: const BoxDecoration(
-  //               //color: Colors.blueAccent,
-  //               borderRadius: BorderRadius.only(
-  //                 topLeft: Radius.circular(8.0),
-  //                 topRight: Radius.circular(8.0),
-  //               ),
-  //               boxShadow: [
-  //                 BoxShadow(
-  //                   //color: Colors.grey,
-  //                   blurRadius: 4,
-  //                   offset: Offset(4, 8),
-  //                 ),
-  //               ]),
-  //           child: SingleChildScrollView(
-  //             child: Column(
-  //               crossAxisAlignment: CrossAxisAlignment.start,
-  //               children: [
-  //                 Row(
-  //                   mainAxisAlignment: MainAxisAlignment.start,
-  //                   children: [
-  //                     const Padding(
-  //                       padding: EdgeInsets.only(left: 10.0),
-  //                       child: Text(
-  //                         'Details ',
-  //                         style: TextStyle(
-  //                             fontFamily: 'WorkSans',
-  //                             fontSize: 22.0,
-  //                             fontWeight: FontWeight.w500),
-  //                       ),
-  //                     ),
-  //                     const Gap(10),
-  //                     Container(
-  //                       height: 25.0,
-  //                       width: 100.0,
-  //                       decoration: BoxDecoration(
-  //                         borderRadius: BorderRadius.circular(10.0),
-  //                         color: rideVerified!
-  //                             ? Colors.green.withOpacity(0.7)
-  //                             : Colors.orange,
-  //                       ),
-  //                       child: rideVerified!
-  //                           ? const Padding(
-  //                               padding: EdgeInsets.only(left: 20.0, top: 3.0),
-  //                               child: Text("Verified"),
-  //                             )
-  //                           : const Padding(
-  //                               padding: EdgeInsets.only(left: 10, top: 3.0),
-  //                               child: Text("Unchecked"),
-  //                             ),
-  //                     ),
-  //                     const Gap(20),
-  //                     IconButton(
-  //                       iconSize: 30,
-  //                       icon: const Icon(
-  //                         Icons.close,
-  //                       ),
-  //                       onPressed: () {
-  //                         showDetailsToggle = !showDetailsToggle;
-  //                         setState(() {});
-  //                       },
-  //                     ),
-  //                   ],
-  //                 ),
-  //                 const Divider(
-  //                   indent: 10.0,
-  //                   endIndent: 10.0,
-  //                   height: 5.0,
-  //                   thickness: 5.0,
-  //                 ),
-  //                 const Gap(5),
-  //                 Padding(
-  //                   padding: const EdgeInsets.only(left: 8.0),
-  //                   child: DisplayText(text: "$rideTitle"),
-  //                 ),
-  //                 Padding(
-  //                   padding: const EdgeInsets.all(8.0),
-  //                   child: Text("$rideDesc"),
-  //                 ),
-  //                 Padding(
-  //                   padding: const EdgeInsets.only(
-  //                       left: 8.0, right: 8.0, bottom: 8.0),
-  //                   child: Text("$rideDow"),
-  //                 ),
-  //                 Padding(
-  //                   padding: const EdgeInsets.only(
-  //                       left: 8.0, right: 8.0, bottom: 8.0),
-  //                   child: Text("$rideStarttime"),
-  //                 ),
-  //                 Padding(
-  //                   padding: const EdgeInsets.only(
-  //                       left: 8.0, right: 8.0, bottom: 8.0),
-  //                   child: Text("$rideContact"),
-  //                 ),
-  //                 Padding(
-  //                   padding: const EdgeInsets.only(
-  //                       left: 8.0, right: 8.0, bottom: 8.0),
-  //                   child: Text("$ridePhone"),
-  //                 ),
-  //                 Align(
-  //                   alignment: Alignment.center,
-  //                   child: ElevatedButton(
-  //                     onPressed: () async {
-  //                       print("RideID: $rideID");
-  //                       await fs.deleteRide(rideID).then((value) {
-  //                         _getRideData();
-  //                       });
-  //                       //_getRideData();
-  //                       setState(() {});
-  //                       // Navigator.pop(context);
-  //                     },
-  //                     child: const Text("Delete"),
-  //                   ),
-  //                 ),
-  //               ],
-  //             ),
-  //           ),
-  //         ),
-  //       );
-  //     },
-  //   );
-  // }
 
   Widget placeMap() {
     return GoogleMap(
@@ -1233,16 +1211,11 @@ class MapScreenState extends ConsumerState<MapScreen> {
         _setMarker();
       },
       onLongPress: (point) {
-        //addNewRide(point);
-        newRideDialog(point);
+        rideLatlng = point;
+        newRideDialog(point, false);
       },
       onTap: (point) {
         setState(() {
-          // for (var marker in _markers) {
-          //   _markers
-          //       .remove(marker.copyWith(infoWindowParam: InfoWindow.noText));
-          // }
-          //tappedPoint = point;
           gotoSearchedPlace(point.latitude, point.longitude);
         });
       },

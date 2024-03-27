@@ -13,8 +13,9 @@ class FireStoreService {
       'contactName': ride.contact,
       'contactPhone': ride.phone,
       'desc': ride.desc,
-      'dow': ride.dow,
+      'dow': ride.dow!.index,
       'startTime': ride.startTime,
+      'distance': ride.rideDistance,
       'latlng': GeoPoint(ride.latlng!.latitude, ride.latlng!.longitude),
       'snippet': ride.snippet,
       'startPointDesc': ride.startPointDesc,
@@ -40,6 +41,20 @@ class FireStoreService {
     //GeoPoint geoPoint = GeoPoint(ride.latlng!.latitude,ride.latlng!.longitude);
     return ridesData.doc(docID).update({
       'contactName': ride.contact,
+      'contactPhone': ride.phone,
+      'desc': ride.desc,
+      'dow': ride.dow!.index,
+      'startTime': ride.startTime,
+      'distance': ride.rideDistance,
+      'latlng': GeoPoint(ride.latlng!.latitude, ride.latlng!.longitude),
+      'snippet': ride.snippet,
+      'startPointDesc': ride.startPointDesc,
+      'title': ride.title,
+      'createOn': Timestamp.now(),
+      'verified': ride.verified,
+      'verifiedBy': ride.verifiedBy,
+      'createdBy': ride.createdBy,
+      'rideType': ride.rideType!.index,
     });
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mymap/utils/extensions.dart';
 
 class MyTextField extends StatelessWidget {
   final controller;
@@ -15,21 +16,22 @@ class MyTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
       child: TextField(
         controller: controller,
         obscureText: obscureText,
         decoration: InputDecoration(
-            enabledBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.white),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.grey.shade400),
-            ),
-            fillColor: Colors.grey.shade200,
-            filled: true,
-            hintText: hintText,
-            hintStyle: TextStyle(color: Colors.grey[500])),
+          enabledBorder: OutlineInputBorder(
+            borderSide: BorderSide(color: context.colorScheme.outlineVariant),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(color: context.colorScheme.outline),
+          ),
+          fillColor: context.colorScheme.onInverseSurface,
+          filled: true,
+          hintText: hintText,
+          hintStyle: TextStyle(color: context.colorScheme.outlineVariant),
+        ),
       ),
     );
   }
