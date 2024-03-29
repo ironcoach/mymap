@@ -13,19 +13,7 @@ class AppTheme {
 
   static final lightTheme = FlexThemeData.light(
     scheme: FlexScheme.verdunHemlock,
-    // colors: const FlexSchemeColor(
-    //   background:
-    //   primary: Color(0xff00296b),
-    //   primaryContainer: Color(0xffa0c2ed),
-    //   secondary: Color(0xffd26900),
-    //   secondaryContainer: Color(0xffffd270),
-    //   tertiary: Color(0xff5c5c95),
-    //   tertiaryContainer: Color(0xffc8dbf8),
-    //   //appBarColor: Color(0xffc8dcf8),
-    //   appBarColor: Color(0xFFE2DFFF),
 
-    //   error: null,
-    // ),
 
     surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
     blendLevel: 1,
