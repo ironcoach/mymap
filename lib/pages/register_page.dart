@@ -72,11 +72,11 @@ class _RegisterPageState extends State<RegisterPage> {
         showErrorMessage("Passwords don't match");
       }
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      print("SignIn Error: ${e.code}");
+      debugPrint("SignIn Error: ${e.code}");
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       // Show Error Message
       showErrorMessage(e.code);
@@ -97,11 +97,9 @@ class _RegisterPageState extends State<RegisterPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.deepPurple,
           title: Center(
             child: Text(
               message,
-              style: const TextStyle(color: Colors.white),
             ),
           ),
         );
@@ -112,7 +110,6 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[300],
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -129,7 +126,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   Text(
                     "Let's create an account for you.",
                     style: TextStyle(
-                      color: Colors.grey[700],
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 16,
                     ),
                   ),
@@ -139,7 +136,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextFormField(
                     keyboardType: TextInputType.name,
                     controller: firstNameController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                         labelText: 'FirstName', prefixIcon: Icon(Icons.person)),
@@ -150,7 +146,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextFormField(
                     keyboardType: TextInputType.name,
                     controller: lastNameController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                         labelText: 'LastName', prefixIcon: Icon(Icons.person)),
@@ -161,7 +156,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextFormField(
                     keyboardType: TextInputType.phone,
                     controller: phoneController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                         labelText: 'Phone', prefixIcon: Icon(Icons.phone)),
@@ -173,7 +167,6 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextFormField(
                     keyboardType: TextInputType.emailAddress,
                     controller: emailController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                         labelText: 'Email', prefixIcon: Icon(Icons.email)),
@@ -193,7 +186,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     obscureText: passToggle,
                     obscuringCharacter: "*",
                     controller: passwordController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: 'Password',
@@ -224,7 +216,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     obscureText: passToggle,
                     obscuringCharacter: "*",
                     controller: confirmPassController,
-                    cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: 'Confirm',
@@ -269,20 +260,18 @@ class _RegisterPageState extends State<RegisterPage> {
                         Expanded(
                           child: Divider(
                             thickness: 0.5,
-                            color: Colors.grey[400],
                           ),
                         ),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 10.0),
                           child: Text(
                             'Or continue with',
-                            style: TextStyle(color: Colors.grey[700]),
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                           ),
                         ),
                         Expanded(
                           child: Divider(
                             thickness: 0.5,
-                            color: Colors.grey[400],
                           ),
                         ),
                       ],
@@ -313,15 +302,15 @@ class _RegisterPageState extends State<RegisterPage> {
                     children: [
                       Text(
                         'Already have an Account?',
-                        style: TextStyle(color: Colors.grey[700]),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(width: 4),
                       GestureDetector(
                         onTap: widget.onTapRegister,
-                        child: const Text(
+                        child: Text(
                           'Login now',
                           style: TextStyle(
-                            color: Colors.blue,
+                            color: Theme.of(context).colorScheme.primary,
                             fontWeight: FontWeight.bold,
                           ),
                         ),

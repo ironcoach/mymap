@@ -1,7 +1,5 @@
 import 'package:flex_color_scheme/flex_color_scheme.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   const AppTheme._();
@@ -20,7 +18,7 @@ class AppTheme {
     subThemesData: const FlexSubThemesData(
       blendOnLevel: 8,
       blendOnColors: false,
-      useTextTheme: true,
+      useMaterial3Typography: true,
       useM2StyleDividerInM3: true,
       defaultRadius: 12.0,
       elevatedButtonSchemeColor: SchemeColor.onPrimaryContainer,
@@ -43,8 +41,10 @@ class AppTheme {
       popupMenuElevation: 3.0,
       alignedDropdown: true,
       useInputDecoratorThemeInDialogs: true,
-      drawerIndicatorRadius: 12.0,
-      drawerIndicatorSchemeColor: SchemeColor.primary,
+      // Completely disable drawer indicators
+      drawerIndicatorRadius: 0.0,
+      drawerIndicatorSchemeColor: SchemeColor.surface,
+      drawerIndicatorOpacity: 0.0,
       bottomNavigationBarMutedUnselectedLabel: false,
       bottomNavigationBarMutedUnselectedIcon: false,
       menuRadius: 8.0,
@@ -78,6 +78,24 @@ class AppTheme {
     useMaterial3: true,
     // To use the Playground font, add GoogleFonts package and uncomment
     // fontFamily: GoogleFonts.notoSans().fontFamily,
+  ).copyWith(
+    // Override drawer theme to eliminate all indicators
+    drawerTheme: const DrawerThemeData(
+      backgroundColor: null, // Use theme default
+      scrimColor: null,
+      elevation: 16,
+    ),
+    navigationDrawerTheme: NavigationDrawerThemeData(
+      backgroundColor: null,
+      elevation: 16,
+      indicatorColor: Colors.transparent,
+      indicatorShape: const RoundedRectangleBorder(),
+    ),
+    listTileTheme: const ListTileThemeData(
+      selectedTileColor: Colors.transparent,
+      selectedColor: null,
+      tileColor: Colors.transparent,
+    ),
   );
 
   static final darkTheme = FlexThemeData.dark(
@@ -86,8 +104,7 @@ class AppTheme {
     blendLevel: 2,
     subThemesData: const FlexSubThemesData(
       blendOnLevel: 10,
-      blendTextTheme: true,
-      useTextTheme: true,
+      useMaterial3Typography: true,
       useM2StyleDividerInM3: true,
       defaultRadius: 12.0,
       elevatedButtonSchemeColor: SchemeColor.onPrimaryContainer,
@@ -110,8 +127,10 @@ class AppTheme {
       popupMenuElevation: 3.0,
       alignedDropdown: true,
       useInputDecoratorThemeInDialogs: true,
-      drawerIndicatorRadius: 12.0,
-      drawerIndicatorSchemeColor: SchemeColor.primary,
+      // Completely disable drawer indicators
+      drawerIndicatorRadius: 0.0,
+      drawerIndicatorSchemeColor: SchemeColor.surface,
+      drawerIndicatorOpacity: 0.0,
       bottomNavigationBarMutedUnselectedLabel: false,
       bottomNavigationBarMutedUnselectedIcon: false,
       menuRadius: 8.0,
@@ -144,5 +163,23 @@ class AppTheme {
     useMaterial3: true,
     // To use the Playground font, add GoogleFonts package and uncomment
     // fontFamily: GoogleFonts.notoSans().fontFamily,
+  ).copyWith(
+    // Override drawer theme to eliminate all indicators
+    drawerTheme: const DrawerThemeData(
+      backgroundColor: null, // Use theme default
+      scrimColor: null,
+      elevation: 16,
+    ),
+    navigationDrawerTheme: NavigationDrawerThemeData(
+      backgroundColor: null,
+      elevation: 16,
+      indicatorColor: Colors.transparent,
+      indicatorShape: const RoundedRectangleBorder(),
+    ),
+    listTileTheme: const ListTileThemeData(
+      selectedTileColor: Colors.transparent,
+      selectedColor: null,
+      tileColor: Colors.transparent,
+    ),
   );
 }

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/material.dart';
@@ -50,11 +51,11 @@ class _LoginWebPageState extends State<LoginWebPage> {
         password: passwordController.text.trim(),
       );
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      print("SignIn Error: ${e.code}");
+      debugPrint("SignIn Error: ${e.code}");
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       // Show Error Message
       showErrorMessage(e.code);
@@ -105,36 +106,58 @@ class _LoginWebPageState extends State<LoginWebPage> {
           Expanded(
             child: Stack(
               children: [
+                // Full background with gradient overlay
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                          Theme.of(context).colorScheme.secondary.withValues(alpha: 0.1),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // Left side - First image
                 Positioned(
                   left: 0,
-                  right: 0,
-                  child: Image.asset(
-                    'assets/images/SuzyBike1.jpg',
-                    fit: BoxFit.fill,
-                    width: MediaQuery.of(context).size.width / 3, // Half width
-
-                    height: MediaQuery.of(context).size.height, // Full height
+                  top: 0,
+                  bottom: 0,
+                  width: MediaQuery.of(context).size.width * 0.33,
+                  child: ClipRect(
+                    child: Image.asset(
+                      'assets/images/SuzyBike1.jpg',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
+                // Center - Second image
                 Positioned(
-                  left: MediaQuery.of(context).size.width / 3,
-                  right: 0,
-                  child: Image.asset(
-                    'assets/images/cennaRide1.jpg',
-                    fit: BoxFit.fitWidth,
-                    width: MediaQuery.of(context).size.width / 3, // Half width
-                    height: MediaQuery.of(context).size.height, // Full height
+                  left: MediaQuery.of(context).size.width * 0.33,
+                  top: 0,
+                  bottom: 0,
+                  width: MediaQuery.of(context).size.width * 0.34,
+                  child: ClipRect(
+                    child: Image.asset(
+                      'assets/images/cennaRide1.jpg',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
-                // Background image 2 (modify positions and sizes for each image)
+                // Right side - Third image
                 Positioned(
-                  top: 0.0,
-                  left: MediaQuery.of(context).size.width / 1.5,
-                  child: Image.asset(
-                    '/images/tonyFoCo.jpg',
-                    fit: BoxFit.fill,
-                    width: MediaQuery.of(context).size.width / 3,
-                    height: MediaQuery.of(context).size.height,
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: MediaQuery.of(context).size.width * 0.33,
+                  child: ClipRect(
+                    child: Image.asset(
+                      'assets/images/tonyFoCo.jpg',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
 
@@ -159,16 +182,37 @@ class _LoginWebPageState extends State<LoginWebPage> {
                       ],
                     ),
                   ),
-                )),
+                ),  // Close Container
+                ),  // Close Positioned
 
                 Center(
-                  child: SizedBox(
-                    width: MediaQuery.of(context).size.width / 3.25,
-                    child: Center(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        width: MediaQuery.of(context).size.width / 3.25,
+                        margin: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(context).colorScheme.shadow.withValues(alpha: 0.05),
+                              blurRadius: 30,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: SingleChildScrollView(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32.0),
+                              child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               //const SizedBox(height: 10),
@@ -180,20 +224,36 @@ class _LoginWebPageState extends State<LoginWebPage> {
                               TextFormField(
                                 keyboardType: TextInputType.emailAddress,
                                 controller: emailController,
-                                //cursorColor: Colors.black,
                                 textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                    labelText: 'Email',
-                                    prefixIcon: Icon(Icons.email)),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                                decoration: InputDecoration(
+                                  labelText: 'Email',
+                                  prefixIcon: const Icon(Icons.email),
+                                  filled: true,
+                                  fillColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.3),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
                                 autovalidateMode:
                                     AutovalidateMode.onUserInteraction,
                                 validator: (email) {
-                                  email != null &&
+                                  return email != null &&
                                           !EmailValidator.validate(email)
                                       ? 'Enter a valid email'
                                       : null;
-                                  return null;
-                                  // return null;
                                 },
                               ),
 
@@ -203,12 +263,29 @@ class _LoginWebPageState extends State<LoginWebPage> {
                                 obscureText: passToggle,
                                 obscuringCharacter: "*",
                                 controller: passwordController,
-                                //cursorColor: Colors.black,
                                 textInputAction: TextInputAction.next,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
                                 decoration: InputDecoration(
                                   labelText: 'Password',
                                   prefixIcon: const Icon(Icons.lock),
-                                  suffix: InkWell(
+                                  filled: true,
+                                  fillColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.3),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  suffixIcon: InkWell(
                                     onTap: () {
                                       setState(() {
                                         passToggle = !passToggle;
@@ -222,27 +299,28 @@ class _LoginWebPageState extends State<LoginWebPage> {
                                 autovalidateMode:
                                     AutovalidateMode.onUserInteraction,
                                 validator: (password) {
-                                  password != null &&
-                                          !EmailValidator.validate(password)
-                                      ? 'Enter a valid email'
-                                      : null;
+                                  if (password == null || password.isEmpty) {
+                                    return 'Password is required';
+                                  }
+                                  if (password.length < 6) {
+                                    return 'Password must be at least 6 characters';
+                                  }
                                   return null;
-                                  // return null;
                                 },
                               ),
 
                               const SizedBox(height: sizeBetweenFields),
 
                               // forgot password?
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 25.0),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 25.0),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
                                     Text(
                                       'Forgot Password?',
                                       style: TextStyle(
-                                          color: Colors.white70,
+                                          color: Theme.of(context).colorScheme.primary,
                                           fontWeight: FontWeight.w700),
                                     ),
                                   ],
@@ -257,27 +335,27 @@ class _LoginWebPageState extends State<LoginWebPage> {
                               const SizedBox(height: 20),
 
                               // or continue with
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 25.0),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 25.0),
                                 child: Row(
                                   children: [
-                                    Expanded(
+                                    const Expanded(
                                       child: Divider(
                                         thickness: 0.5,
                                         //color: Colors.grey[400],
                                       ),
                                     ),
                                     Padding(
-                                      padding: EdgeInsets.symmetric(
+                                      padding: const EdgeInsets.symmetric(
                                           horizontal: 10.0),
                                       child: Text(
                                         'Or continue with',
                                         style: TextStyle(
-                                            color: Colors.white70,
+                                            color: Theme.of(context).colorScheme.onSurface,
                                             fontWeight: FontWeight.w700),
                                       ),
                                     ),
-                                    Expanded(
+                                    const Expanded(
                                       child: Divider(
                                         thickness: 0.5,
                                         //color: Colors.grey[400],
@@ -311,19 +389,19 @@ class _LoginWebPageState extends State<LoginWebPage> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'Not a member?',
                                     style: TextStyle(
-                                        color: Colors.white70,
+                                        color: Theme.of(context).colorScheme.onSurface,
                                         fontWeight: FontWeight.w700),
                                   ),
                                   const SizedBox(width: 15),
                                   GestureDetector(
                                     onTap: widget.onTapRegister,
-                                    child: const Text(
+                                    child: Text(
                                       'Register now',
                                       style: TextStyle(
-                                        color: Colors.blue,
+                                        color: Theme.of(context).colorScheme.primary,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -336,10 +414,12 @@ class _LoginWebPageState extends State<LoginWebPage> {
                       ),
                     ),
                   ),
-                ),
+                    ),
+                      ),
+                ),  // Close Center
               ],
-            ),
-          ),
+            ),  // Close Stack
+          ),    // Close Expanded
         ],
       ),
     );

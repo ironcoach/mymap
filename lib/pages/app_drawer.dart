@@ -9,19 +9,34 @@ class AppDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Drawer(
-      //backgroundColor: Colors.lightBlueAccent,
-      backgroundColor: const Color(0xFFDAE2FF),
-      width: 250,
-      child: Column(
+    return Theme(
+      data: Theme.of(context).copyWith(
+        // Force override any selection indicators
+        listTileTheme: const ListTileThemeData(
+          selectedTileColor: Colors.transparent,
+          selectedColor: Colors.transparent,
+          tileColor: Colors.transparent,
+        ),
+        navigationDrawerTheme: NavigationDrawerThemeData(
+          indicatorColor: Colors.transparent,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+        ),
+      ),
+      child: Drawer(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        width: 250,
+        child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Column(
             children: [
-              const DrawerHeader(
+              DrawerHeader(
+                decoration: const BoxDecoration(
+                  color: Colors.transparent,
+                ),
                 child: Icon(
                   Icons.person,
-                  //color: Colors.white,
+                  color: Theme.of(context).colorScheme.onSurface,
                   size: 64,
                 ),
               ),
@@ -46,6 +61,7 @@ class AppDrawer extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }

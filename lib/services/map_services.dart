@@ -6,19 +6,50 @@ import 'dart:convert' as convert;
 
 class MapServices {
   final String key = 'AIzaSyB6ZNEIx7WZO3Vzl1kphBmwaNDpjpkifOU';
-  final String types = 'geocode';
+  final String types = '(regions)';
 
   Future<List<AutoCompleteResult>> searchPlaces(String searchInput) async {
+    // URL encode the search input to handle spaces and special characters
+    final String encodedInput = Uri.encodeComponent(searchInput);
     final String url =
-        'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$searchInput&types=$types&key=$key';
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$encodedInput&key=$key';
 
-    var response = await http.get(Uri.parse(url));
+    print('🔍 Original input: "$searchInput"');
+    print('🔍 Encoded input: "$encodedInput"');
+    print('🔍 Full URL: $url');
 
-    var json = convert.jsonDecode(response.body);
+    try {
+      var response = await http.get(Uri.parse(url));
 
-    var results = json['predictions'] as List;
+      print('📡 Response status: ${response.statusCode}');
+      print('📄 Response body: ${response.body}');
 
-    return results.map((e) => AutoCompleteResult.fromJson(e)).toList();
+      if (response.statusCode != 200) {
+        print('❌ HTTP Error: ${response.statusCode}');
+        return [];
+      }
+
+      var json = convert.jsonDecode(response.body);
+
+      if (json['status'] != 'OK') {
+        print('❌ API Error: ${json['status']} - ${json['error_message'] ?? 'No error message'}');
+        // Handle specific error cases
+        if (json['status'] == 'REQUEST_DENIED') {
+          print('🔑 Check your API key and enable Places API');
+        } else if (json['status'] == 'OVER_QUERY_LIMIT') {
+          print('💰 API quota exceeded');
+        }
+        return [];
+      }
+
+      var results = json['predictions'] as List;
+      print('✅ Found ${results.length} results');
+
+      return results.map((e) => AutoCompleteResult.fromJson(e)).toList();
+    } catch (e) {
+      print('💥 Exception in searchPlaces: $e');
+      return [];
+    }
   }
 
   Future<Map<String, dynamic>> getPlace(String? input) async {

@@ -1,8 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
-import 'package:mymap/utils/extensions.dart';
 import 'package:mymap/widgets/edit_box.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -24,29 +22,25 @@ class _ProfilePageState extends State<ProfilePage> {
         title: Text("Edit $field"),
         content: TextField(
           autofocus: true,
-          style: const TextStyle(color: Colors.black),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
           decoration: InputDecoration(
             hintText: "Enter new $field",
-            hintStyle: const TextStyle(color: Colors.grey),
+            hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
-          onChanged: (value) {},
+          onChanged: (value) {
+            newStr = value;
+          },
         ),
         actions: [
           TextButton(
             child: const Text(
               "Cancel",
-              style: TextStyle(
-                color: Colors.black,
-              ),
             ),
             onPressed: () => Navigator.pop(context),
           ),
           TextButton(
             child: const Text(
               "Save",
-              style: TextStyle(
-                color: Colors.black,
-              ),
             ),
             onPressed: () => Navigator.of(context).pop(newStr),
           ),
@@ -63,8 +57,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title: const Text("Profile Page"),
-          backgroundColor: context.colorScheme.tertiaryContainer),
+          title: const Text("Profile Page")),
       body: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection("users")

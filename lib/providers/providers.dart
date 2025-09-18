@@ -1,29 +1,36 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mymap/models/auto_complete_result.dart';
 
-final placeResultsProvider = ChangeNotifierProvider<PlaceResults>((ref) {
-  return PlaceResults();
-});
+final placeResultsProvider = NotifierProvider<PlaceResultsNotifier, PlaceResults>(PlaceResultsNotifier.new);
 
-final searchToggleProvider = ChangeNotifierProvider<SearchToggle>((ref) {
-  return SearchToggle();
-});
+final searchToggleProvider = NotifierProvider<SearchToggleNotifier, SearchToggle>(SearchToggleNotifier.new);
 
-class PlaceResults extends ChangeNotifier {
+class PlaceResults {
   List<AutoCompleteResult> allReturnedResults = [];
+}
 
-  void setResults(allPlaces) {
-    allReturnedResults = allPlaces;
-    notifyListeners();
+class PlaceResultsNotifier extends Notifier<PlaceResults> {
+  @override
+  PlaceResults build() {
+    return PlaceResults();
+  }
+
+  void setResults(List<AutoCompleteResult> allPlaces) {
+    state = PlaceResults()..allReturnedResults = allPlaces;
   }
 }
 
-class SearchToggle extends ChangeNotifier {
+class SearchToggle {
   bool searchToggle = false;
+}
+
+class SearchToggleNotifier extends Notifier<SearchToggle> {
+  @override
+  SearchToggle build() {
+    return SearchToggle();
+  }
 
   void toggleSearch() {
-    searchToggle = !searchToggle;
-    notifyListeners();
+    state = SearchToggle()..searchToggle = !state.searchToggle;
   }
 }

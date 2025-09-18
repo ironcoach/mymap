@@ -1,40 +1,35 @@
 import 'dart:async';
-import 'package:flutter/cupertino.dart' as cupertino;
-
-import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:gap/gap.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
-//import 'package:location/location.dart' as loc;
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:mymap/constants/constants.dart';
 import 'package:mymap/models/auto_complete_result.dart';
 import 'package:mymap/models/ride_data.dart';
-import 'package:mymap/pages/add_new_ride_page.dart';
 import 'package:mymap/pages/app_drawer.dart';
 import 'package:mymap/pages/profile_page.dart';
 import 'package:mymap/providers/providers.dart';
 import 'package:mymap/services/firestore.dart';
 import 'package:mymap/services/map_services.dart';
+import 'package:mymap/services/sample_ride_service.dart';
+import 'package:mymap/services/location_service.dart';
+import 'package:mymap/repositories/ride_repository.dart';
+import 'package:mymap/widgets/dialogs/responsive_ride_dialog.dart';
+import 'package:mymap/widgets/dialogs/ride_info_dialog.dart';
+import 'package:mymap/widgets/search/map_search_widget.dart';
 import 'package:mymap/utils/extensions.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter/gestures.dart';
 import 'package:mymap/widgets/display_dlg_text.dart';
-import 'package:mymap/widgets/display_text.dart';
 import 'package:mymap/widgets/my_textfield.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
@@ -48,22 +43,23 @@ class MapScreen extends ConsumerStatefulWidget {
 class MapScreenState extends ConsumerState<MapScreen> {
   //Position of initial map and camera is Boulder, CO
 
-  // static const _initialCameraPosition =
-  //     CameraPosition(target: LatLng(40.017555, -105.258336), zoom: 10.5);
   CameraPosition _startPosition =
-      const CameraPosition(target: LatLng(40.017555, -105.258336), zoom: 10.5);
+      const CameraPosition(target: _defaultPosition, zoom: _defaultZoom);
 
-  //loc.Location location = loc.Location();
-  final LatLng _initialCameraPosition = const LatLng(0.0, 0.0);
-  //LatLng _initialCameraPosition = LatLng(0.0, 0.0);
-/////40.187503, -105.152711
+  static const LatLng _defaultPosition = LatLng(40.017555, -105.258336);
+  static const double _defaultZoom = 10.5;
+  static const int _searchDebounceMs = 700;
   ///
   ///
 
-  final List<Ride> ridesData = [];
 
-  Set<Marker> _markers = <Marker>{};
   final Set<Marker> _saveMarkers = <Marker>{};
+
+  // Cached marker icons to avoid reloading
+  Map<RideType, BitmapDescriptor>? _cachedMarkers;
+
+  // Store ride data for quick access without additional Firestore calls
+  final Map<String, Map<String, dynamic>> _ridesData = {};
 
   //Debounce to throttle async calls during location search
   Timer? _debounce;
@@ -94,21 +90,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
   int? rideDistance;
   LatLng? rideLatlng;
 
-  List<Uint8List> pinImages = [];
-  List<String> assetImages = [
-    'assets/mapicons/birds.png',
-    'assets/mapicons/bars.png',
-    'assets/mapicons/coffee-n-tea.png',
-    'assets/mapicons/food.png',
-  ];
 
-  BitmapDescriptor? markerGravel;
 
 /////////////////
   ///
   ///
   final Completer<GoogleMapController> mapController = Completer();
-  final LatLng _initialPosition = const LatLng(0.0, 0.0); // Default position
 
   final _searchController = TextEditingController();
   TextEditingController titleController = TextEditingController();
@@ -123,8 +110,10 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   void _onMapCreated(GoogleMapController controller) {
     mapController.complete(controller);
-    //print("On Map Created");
     _setMarker();
+    
+    // Debug: Check if map is ready
+    debugPrint('Google Map created and ready');
   }
 
   final user = FirebaseAuth.instance.currentUser!;
@@ -154,7 +143,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         builder: (BuildContext builder) => SizedBox(
           height: 216,
           child: CupertinoDatePicker(
-            backgroundColor: context.colorScheme.surfaceVariant,
+            backgroundColor: context.colorScheme.surfaceContainerHighest,
             initialDateTime: _selectedDT,
             mode: CupertinoDatePickerMode.time,
             onDateTimeChanged: (DateTime newTime) {
@@ -167,7 +156,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         ),
       );
     } else {
-      final TimeOfDay? pickedTime = await showTimePicker(
+      await showTimePicker(
         context: context,
         initialTime: _selectedTime,
       ).then((value) {
@@ -184,29 +173,10 @@ class MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  void _createMarkers() async {
-    // Define custom marker icons from assets
-    markerGravel = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(devicePixelRatio: 2.0),
-      'assets/mapicons/birds.png',
-    );
-  }
-  // // declared method to get Images
-  // Future<Uint8List> getImage(String path, int width) async {
-  //   ByteData data = await rootBundle.load(path);
-  //   ui.Codec codec = await ui.instantiateImageCodec(data.buffer.asUint8List(),
-  //       targetHeight: width);
-  //   ui.FrameInfo fi = await codec.getNextFrame();
-  //   return (await fi.image.toByteData(format: ui.ImageByteFormat.png))!
-  //       .buffer
-  //       .asUint8List();
-  // }
 
   @override
   void initState() {
     super.initState();
-    //_createMarkers;
-    //_loadPinImages();
     _determinePosition();
     _getRideData();
 
@@ -215,7 +185,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   void dispose() {
-    //mapController.dispose();
     _searchController.dispose();
     titleController.dispose();
     descController.dispose();
@@ -229,13 +198,26 @@ class MapScreenState extends ConsumerState<MapScreen> {
     super.dispose();
   }
 
-  // _loadPinImages() async {
-  //   for (var assetImage in assetImages) {
-  //     pinImages.add(await getImage(assetImage, 10));
-  //   }
-  // }
 
-  _determinePosition() async {
+  Future<void> _determinePosition() async {
+    final locationService = LocationService();
+    final result = await locationService.getCurrentLocation();
+    
+    if (!mounted) return;
+    
+    _startPosition = locationService.getCameraPosition(result);
+    gotoSearchedPlace(result.position.latitude, result.position.longitude);
+    
+    if (result.hasError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.errorMessage!)),
+      );
+    }
+    
+    setState(() {});
+  }
+
+  Future<void> _oldDeterminePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
@@ -269,461 +251,268 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
     // When we reach here, permissions are granted and we can
     // continue accessing the position of the device.
-    //print("Permissions granted for location");
 
-    Position pos = await Geolocator.getCurrentPosition().then((myPos) {
-      //print("pos determined");
-      _startPosition = CameraPosition(
-          target: LatLng(
-            myPos.latitude,
-            myPos.longitude,
-          ),
-          zoom: 11);
-      gotoSearchedPlace(myPos.latitude, myPos.longitude);
-      setState(() {});
-      return myPos;
-    });
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 100,
+        ),
+      );
+      
+      if (mounted) {
+        _startPosition = CameraPosition(
+          target: LatLng(position.latitude, position.longitude),
+          zoom: 11.0,
+        );
+        gotoSearchedPlace(position.latitude, position.longitude);
+        setState(() {});
+      }
+    } catch (e) {
+      // Fallback to default position if location fails
+      if (mounted) {
+        setState(() {
+          _startPosition = const CameraPosition(
+            target: _defaultPosition,
+            zoom: _defaultZoom,
+          );
+        });
+      }
+    }
 
     //return await Geolocator.getCurrentPosition();
   }
 
-  Future<BitmapDescriptor> _getCustomMarker(image) async {
-    ByteData data = await rootBundle.load(image);
-    ui.Codec codec = await ui.instantiateImageCodec(data.buffer.asUint8List(),
-        targetWidth: 40);
-    ui.FrameInfo fi = await codec.getNextFrame();
-    Uint8List? bytes =
-        (await fi.image.toByteData(format: ui.ImageByteFormat.png))
-            ?.buffer
-            .asUint8List();
-    return BitmapDescriptor.fromBytes(bytes!);
-  }
 
-  void _getRideData() async {
-    _saveMarkers.clear();
+  Future<void> _getRideData() async {
+    debugPrint('=== _getRideData started ===');
+    try {
+      debugPrint('Clearing existing markers and cached data...');
+      _saveMarkers.clear();
+      _ridesData.clear(); // Clear cached data for fresh reload
 
-    BitmapDescriptor markerIcon;
+      debugPrint('Loading marker icons...');
+      // Load marker icons only if not cached
+      _cachedMarkers ??= {
+        RideType.gravelRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/bikeRising.png'),
+        RideType.roadRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/roadRide.png'),
+        RideType.mtbRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/greenBike.png'),
+        RideType.bikeEvent: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/blueRide.png'),
+      };
+      debugPrint('Marker icons loaded/cached');
 
-    // BitmapDescriptor markerGravel =
-    //     await _getCustomMarker('assets/mapicons/bikeRising.png');
+      debugPrint('Fetching rides from Firestore...');
+      final querySnapshot = await ridesDataFS.get();
+      debugPrint('Loaded ${querySnapshot.docs.length} rides from Firestore');
 
-    BitmapDescriptor markerGravel = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/bikeRising.png');
-    BitmapDescriptor markerRoad = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/roadRide.png');
-    BitmapDescriptor markerMTB = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/greenBike.png');
-    BitmapDescriptor markerEvent = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(devicePixelRatio: 1.0),
-        'assets/mapicons/blueRide.png');
+      debugPrint('Processing rides and creating markers...');
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
 
-    ridesDataFS.get().then(
-      (querySnapshot) {
-        for (var doc in querySnapshot.docs) {
-          var data = doc.data() as Map<String, dynamic>;
-          //print("DocID: ${doc.id}");
-          //print('Ride Title: ${data["title"]}');
+        // Store ride data for quick access
+        _ridesData[doc.id] = data;
 
-          RideType type = RideType.values[data['rideType']];
-          //RideType type = RideType.values.data['rideType'];
-          switch (type) {
-            case RideType.gravelRide:
-              markerIcon = markerGravel;
-              break;
-            case RideType.roadRide:
-              markerIcon = markerRoad;
+        final rideTypeIndex = data['rideType'] as int? ?? 0;
+        if (rideTypeIndex >= RideType.values.length) continue;
 
-              break;
-            case RideType.mtbRide:
-              markerIcon = markerMTB;
+        final type = RideType.values[rideTypeIndex];
+        final markerIcon = _cachedMarkers![type]!;
 
-              break;
-            case RideType.bikeEvent:
-              markerIcon = markerEvent;
+        final pos = data["latlng"] as GeoPoint?;
+        if (pos == null) continue;
 
-              break;
-          }
-
-          GeoPoint pos = data["latlng"];
-          LatLng latlng = LatLng(pos.latitude, pos.longitude);
-          final Marker marker = Marker(
-            markerId: MarkerId(doc.id),
-            position: latlng,
-            infoWindow: InfoWindow(
-              onTap: () async {
-                rideID = doc.id;
-
-                //showDetailsToggle = !showDetailsToggle;
-                await getRideDetails();
+        final latlng = LatLng(pos.latitude, pos.longitude);
+        final marker = Marker(
+          markerId: MarkerId(doc.id),
+          position: latlng,
+          infoWindow: InfoWindow(
+            onTap: () {
+              rideID = doc.id;
+              setRideDetailsFromCache(doc.id);
+              if (mounted) {
                 showDetails();
                 setState(() {});
-              },
-              title: data["title"],
-              snippet: data["snippet"],
-            ),
-            onTap: () {},
-            icon: markerIcon,
+              }
+            },
+            title: data["title"] as String? ?? 'Untitled Ride',
+            snippet: data["snippet"] as String? ?? '',
+          ),
+          onTap: () {},
+          icon: markerIcon,
+        );
+        _saveMarkers.add(marker);
+      }
 
-            //icon: BitmapDescriptor.defaultMarker,
-          );
-          _saveMarkers.add(marker);
-        }
+      debugPrint('Created ${_saveMarkers.length} markers');
+
+      debugPrint('Calling setState to update UI...');
+      if (mounted) {
         setState(() {});
-      },
-    );
-  }
+      }
+      debugPrint('setState completed');
 
-////////////////////////////////////
-  void addRidesToFirestore() {
-    final FireStoreService fs = FireStoreService();
-    _fillRideData();
-    for (Ride ride in ridesData) {
-      fs.addRide(ride);
+      debugPrint('=== _getRideData completed successfully ===');
+    } catch (e) {
+      debugPrint('=== ERROR in _getRideData ===');
+      debugPrint('Error details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load rides: $e')),
+        );
+      }
     }
   }
 
-  void _fillRideData() {
-    ridesData.add(
-      Ride(
-        id: 1,
-        title: "Golden Gate Bridge Ride",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Enjoy a scenic ride across the iconic Golden Gate Bridge with breathtaking views of San Francisco.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(37.8199, -122.4783),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 2,
-        title: "Central Park Loop",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Take a leisurely ride through the heart of Manhattan in the beautiful Central Park.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(40.785091, -73.968285),
-        verified: false,
-        verifiedBy: "",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 3,
-        title: "Lakefront Trail",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Ride along the picturesque Lake Michigan and enjoy the stunning Chicago skyline.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Lakeshore drive near the pier.",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(41.8833, -87.6197),
-        verified: false,
-        verifiedBy: "",
-        createdBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 4,
-        title: "Boston Harborwalk",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Cycle along the historic Boston Harbor and explore the city's waterfront.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(42.3601, -71.0589),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.roadRide,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 5,
-        title: "Los Angeles River Bike Path",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Follow the Los Angeles River through parks, neighborhoods, and urban landscapes.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(34.0522, -118.2437),
-        verified: true,
-        verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        createdBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 6,
-        title: "Portland Eastbank Esplanade",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Enjoy a scenic ride along the Willamette River with views of downtown Portland.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(45.5175, -122.6651),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 7,
-        title: "Minneapolis Chain of Lakes",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Explore the interconnected lakes of Minneapolis on this beautiful bike path.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(44.9497, -93.3133),
-        verified: true,
-        verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        createdBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 8,
-        title: "Austin Hike and Bike Trail",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Cycle along the scenic Lady Bird Lake in downtown Austin, Texas.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.friday,
-        latlng: const LatLng(30.2649, -97.7479),
-        verified: false,
-        verifiedBy: "",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 9,
-        title: "Seattle Burke-Gilman Trail",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Ride through parks, neighborhoods, and along scenic waterways on this popular Seattle trail.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(47.6607, -122.2886),
-        verified: true,
-        verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        createdBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 10,
-        title: "Denver Cherry Creek Trail",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Cycle along the Cherry Creek and enjoy the beautiful scenery of Denver.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.tuesday,
-        latlng: const LatLng(39.7392, -104.9903),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 11,
-        title: "Cenna Cycle",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Gravel Ride, Leaves from the shop. This is a friendly ride with an occasional few spicy spots.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Start at the shop",
-        contact: "Cenna Da Man!",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.wednesday,
-        latlng: const LatLng(40.135667689123494, -105.10335022137203),
-        verified: true,
-        verifiedBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        createdBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 12,
-        title: "Gravel Donkey Ride",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Leaves every Thursday evening from the Eagle parking lot at 5:00pm",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.thursday,
-        latlng: const LatLng(40.0805057836106, -105.23549907690392),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-    ridesData.add(
-      Ride(
-        id: 13,
-        title: "Full Cycle",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc:
-            "Road Rides leaving Tuesday and Thursday evening from the shop at 5:30pm",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.monday,
-        latlng: const LatLng(40.017555, -105.258336),
-        verified: false,
-        verifiedBy: "",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-
-    ridesData.add(
-      Ride(
-        id: 14,
-        title: "Tony's Awesome Ride",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc: "This ride leaves from my house whenever the FUCK I want!",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Ranger Adams",
-        phone: "616 956-5434",
-        dow: DayOfWeekType.sunday,
-        latlng: const LatLng(42.405876, -85.277250),
-        verified: true,
-        verifiedBy: "mQOrVKoRv7NxRuFXFLzJznBIiYl1",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.gravelRide,
-        rideDistance: 20,
-      ),
-    );
-
-    ridesData.add(
-      Ride(
-        id: 15,
-        title: "Tucson Shootout",
-        startTime: DateTime.parse("2024-03-15 14:44:00.000"),
-        desc: "Probably the most famous ride in the country.",
-        snippet: "Best bike ride ever",
-        startPointDesc: "Just under the bridge",
-        contact: "Jeff Miller",
-        phone: "555 123-4567",
-        dow: DayOfWeekType.saturday,
-        latlng: const LatLng(32.231719, -110.959289),
-        verified: false,
-        verifiedBy: "",
-        createdBy: "tDWKQAecW5Msw5yXPQK4h5n7MXR2",
-        rideType: RideType.roadRide,
-        rideDistance: 20,
-      ),
-    );
-
-    // for (Ride ride in ridesData) {
-    //   final Marker marker = Marker(
-    //       markerId: MarkerId('marker_${ride.id.toString()}'),
-    //       position: ride.latlng!,
-    //       infoWindow: InfoWindow(
-    //         onTap: () {
-    //           rideIndex = ride.id!.toInt();
-    //           print("Tapped on InfoWindo");
-    //           showDetailsToggle = !showDetailsToggle;
-    //           setState(() {});
-    //         },
-    //         title: ride.title,
-    //         snippet: ride.desc,
-    //       ),
-    //       onTap: () {},
-    //       icon: BitmapDescriptor.defaultMarker);
-    //   _saveMarkers.add(marker);
-    // }
+////////////////////////////////////
+  void addSampleRidesToFirestore() async {
+    final fs = FireStoreService();
+    final sampleRides = SampleRideService.getSampleRides();
+    
+    final error = await fs.addMultipleRides(sampleRides);
+    
+    if (!mounted) return;
+    
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to add sample rides: $error')),
+      );
+    } else {
+      _getRideData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sample rides added successfully!')),
+      );
+    }
   }
 
-  // void addNewRide(LatLng point) {
-  //   Navigator.of(context)
-  //       .push(MaterialPageRoute(builder: (context) => const AddNewRide()));
-  // }
 
-  // Future<void> _selectTime(BuildContext context) async {
-  //   final TimeOfDay? picked = await showTimePicker(
-  //     context: context,
-  //     initialTime: _selectedTime,
-  //   );
-  //   if (picked != null && picked != _selectedTime) {
-  //     setState(() {
-  //       _selectedTime = picked;
-  //     });
-  //   }
-  // }
 
   void newRideDialog(LatLng latlng, bool isEdit) {
+    showDialog(
+      context: context,
+      barrierDismissible: true, // Allow barrier dismissal but handle unsaved changes
+      builder: (context) => ResponsiveRideDialog(
+        location: latlng,
+        isEdit: isEdit,
+        existingRide: isEdit ? _getCurrentRideFromData() : null,
+        onSave: _handleRideSave,
+        onCancel: () {
+          debugPrint('Dialog cancelled by user');
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
+  Ride? _getCurrentRideFromData() {
+    // Create ride from current form data for editing
+    return Ride(
+      title: rideTitle,
+      desc: rideDesc,
+      snippet: rideSnippet,
+      dow: rideDow,
+      startTime: rideStartTime != null
+          ? DateTime(DateTime.now().year, DateTime.now().month,
+              DateTime.now().day, rideStartTime!.hour, rideStartTime!.minute)
+          : null,
+      startPointDesc: rideStartPointDesc,
+      contact: rideContact,
+      phone: ridePhone,
+      latlng: rideLatlng,
+      verified: rideVerified,
+      verifiedBy: rideVerifiedBy,
+      rideType: rideType,
+      rideDistance: rideDistance,
+    );
+  }
+
+  Future<void> _handleRideSave(Ride ride, bool isEdit) async {
+    debugPrint('=== _handleRideSave called ===');
+    debugPrint('Ride title: ${ride.title}');
+    debugPrint('Is edit: $isEdit');
+    debugPrint('User auth status: ${FirebaseAuth.instance.currentUser?.uid}');
+
+    final repository = RideRepository();
+    try {
+      debugPrint('About to save ride to repository...');
+
+      if (isEdit) {
+        debugPrint('Updating existing ride...');
+        await repository.updateRide(rideID, ride);
+        debugPrint('Ride updated successfully');
+      } else {
+        debugPrint('Adding new ride...');
+        final rideId = await repository.addRide(ride);
+        debugPrint('Ride created with ID: $rideId');
+      }
+
+      debugPrint('Repository operation completed successfully');
+
+      if (!mounted) {
+        debugPrint('Widget not mounted, skipping UI updates');
+        return;
+      }
+
+      debugPrint('About to refresh map data...');
+
+      // Refresh the map data (dialog closes itself)
+      _getRideData();
+
+      debugPrint('Map data refresh initiated');
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEdit ? 'Ride updated successfully!' : 'Ride created successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      debugPrint('Success message shown, _handleRideSave completing');
+
+    } catch (e) {
+      debugPrint('=== ERROR in _handleRideSave ===');
+      debugPrint('Error details: $e');
+      debugPrint('Error type: ${e.runtimeType}');
+
+      if (!mounted) return;
+
+      // Check if this is a timeout error (which means operation likely succeeded)
+      if (e.toString().contains('timed out') || e.toString().contains('TimeoutException')) {
+        debugPrint('Treating timeout as soft success - refreshing data');
+
+        // Refresh map data since operation likely succeeded
+        _getRideData();
+
+        // Show optimistic success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isEdit ? 'Ride updated (please verify)' : 'Ride created (please verify)'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      } else {
+        // Show actual error message for real failures
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save ride: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  void _oldNewRideDialog(LatLng latlng, bool isEdit) {
     RideType tmpRideType = RideType.roadRide;
     DayOfWeekType tmpDOW = DayOfWeekType.monday;
     // rideDow = tmpDOW;
@@ -732,16 +521,16 @@ class MapScreenState extends ConsumerState<MapScreen> {
     //_selectedTime = rideStartTime!;
     // Init Fields for screen
     if (isEdit) {
-      titleController.text = rideTitle!;
-      descController.text = rideDesc!;
-      snippetController.text = rideSnippet!;
-      startPointController.text = rideStartPointDesc!;
-      contactController.text = rideContact!;
-      phoneController.text = ridePhone!;
-      distanceController.text = rideDistance.toString();
-      tmpRideType = rideType!;
-      tmpDOW = rideDow!;
-      _selectedTime = rideStartTime!;
+      titleController.text = rideTitle ?? '';
+      descController.text = rideDesc ?? '';
+      snippetController.text = rideSnippet ?? '';
+      startPointController.text = rideStartPointDesc ?? '';
+      contactController.text = rideContact ?? '';
+      phoneController.text = ridePhone ?? '';
+      distanceController.text = rideDistance?.toString() ?? '0';
+      tmpRideType = rideType ?? RideType.roadRide;
+      tmpDOW = rideDow ?? DayOfWeekType.monday;
+      _selectedTime = rideStartTime ?? TimeOfDay.now();
     } else {
       rideDistance = 0;
       // rideDow = tmpDOW;
@@ -794,7 +583,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
                     ),
                     dropdownColor: context.colorScheme.onInverseSurface,
                     padding: EdgeInsets.zero,
-                    value: tmpDOW,
+                    initialValue: tmpDOW,
                     onSaved: (newDay) {
                       setState(() {
                         tmpDOW = newDay!;
@@ -876,7 +665,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
                       filled: true,
                     ),
                     dropdownColor: context.colorScheme.onInverseSurface,
-                    value: tmpRideType,
+                    initialValue: tmpRideType,
                     onSaved: (newRideType) {
                       setState(() {
                         tmpRideType = newRideType!;
@@ -970,19 +759,14 @@ class MapScreenState extends ConsumerState<MapScreen> {
           rideDistance: int.tryParse(distanceController.text.trim()),
         );
         if (isEdit) {
-          await fs.updateRide(rideID, ride).then(
-            (value) {
-              _getRideData();
-            },
-          );
+          await fs.updateRide(rideID, ride);
         } else {
-          await fs.addRide(ride).then(
-            (value) {
-              _getRideData();
-            },
-          );
+          await fs.addRide(ride);
         }
-
+        
+        if (!mounted) return;
+        
+        _getRideData();
         Navigator.pop(context);
         //clear controllers
         titleController.clear();
@@ -1005,9 +789,79 @@ class MapScreenState extends ConsumerState<MapScreen> {
       (marker) => bounds.contains(marker.position),
     ));
     setState(() {
-      //print("Set Markers");
-      _markers = newMarkers;
+      // TODO: Implement visible marker filtering if needed
     });
+  }
+
+  // Fast method using cached data instead of Firestore call
+  Ride? _createRideFromCache(String docId) {
+    final data = _ridesData[docId];
+    if (data == null) return null;
+
+    try {
+      GeoPoint pos = data["latlng"];
+      LatLng latlng = LatLng(pos.latitude, pos.longitude);
+
+      return Ride(
+        id: null, // Using docId as rideId parameter instead
+        title: data['title'],
+        desc: data['desc'],
+        snippet: data['snippet'],
+        dow: data['dow'] != null ? DayOfWeekType.values[data['dow']] : null,
+        startTime: data['startTime']?.toDate(),
+        startPointDesc: data['startPointDesc'],
+        contact: data['contactName'],
+        phone: data['contactPhone'],
+        latlng: latlng,
+        verified: data['verified'] ?? false,
+        verifiedBy: data['verifiedBy'],
+        createdBy: data['createdBy'],
+        rideType: data['rideType'] != null ? RideType.values[data['rideType']] : RideType.roadRide,
+        rideDistance: data['distance'],
+        verifiedByUsers: data['verifiedByUsers'] != null ? List<String>.from(data['verifiedByUsers']) : [],
+        verificationCount: data['verificationCount'] ?? 0,
+        averageRating: data['averageRating']?.toDouble(),
+        totalRatings: data['totalRatings'] ?? 0,
+        userRatings: data['userRatings'] != null ? Map<String, int>.from(data['userRatings']) : {},
+        rideWithGpsUrl: data['rideWithGpsUrl'],
+        stravaUrl: data['stravaUrl'],
+        difficulty: data['difficulty'] != null ? RideDifficulty.values[data['difficulty']] : null,
+      );
+    } catch (e) {
+      debugPrint('Error creating Ride from cached data: $e');
+      return null;
+    }
+  }
+
+  void setRideDetailsFromCache(String docId) {
+    final data = _ridesData[docId];
+    if (data == null) {
+      debugPrint('No cached data found for ride $docId, falling back to Firestore');
+      getRideDetails();
+      return;
+    }
+
+    try {
+      GeoPoint pos = data["latlng"];
+      LatLng latlng = LatLng(pos.latitude, pos.longitude);
+      rideLatlng = latlng;
+      rideTitle = data['title'];
+      rideDesc = data['desc'];
+      rideSnippet = data['snippet'];
+      rideDistance = data['distance'];
+      rideDow = DayOfWeekType.values[data['dow']];
+      rideStartPointDesc = data['startPointDesc'];
+      rideContact = data['contactName'];
+      ridePhone = data['contactPhone'];
+      rideVerified = data['verified'];
+      rideVerifiedBy = data["verifiedBy"];
+      DateTime myDateTime = (data['startTime']).toDate();
+      rideStartTime = TimeOfDay.fromDateTime(myDateTime);
+      rideType = RideType.values[data['rideType']];
+    } catch (e) {
+      debugPrint('Error loading cached ride data: $e, falling back to Firestore');
+      getRideDetails();
+    }
   }
 
   Future getRideDetails() async {
@@ -1060,7 +914,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
                         searchToggle = false;
                         _searchController.text = '';
                         if (searchFlag.searchToggle) {
-                          searchFlag.toggleSearch();
+                          ref.read(searchToggleProvider.notifier).toggleSearch();
                         }
                       });
                     },
@@ -1069,20 +923,19 @@ class MapScreenState extends ConsumerState<MapScreen> {
               if (_debounce?.isActive ?? false) {
                 _debounce?.cancel();
               }
-              _debounce = Timer(const Duration(milliseconds: 700), () async {
+              _debounce = Timer(const Duration(milliseconds: _searchDebounceMs), () async {
                 if (value.length > 2) {
                   if (!searchFlag.searchToggle) {
-                    searchFlag.toggleSearch();
-                    //_markers = {};
+                    ref.read(searchToggleProvider.notifier).toggleSearch();
                   }
 
                   List<AutoCompleteResult> searchResults =
                       await MapServices().searchPlaces(value);
 
-                  allSearchResults.setResults(searchResults);
+                  ref.read(placeResultsProvider.notifier).setResults(searchResults);
                 } else {
                   List<AutoCompleteResult> emptyList = [];
-                  allSearchResults.setResults(emptyList);
+                  ref.read(placeResultsProvider.notifier).setResults(emptyList);
                 }
               });
             },
@@ -1093,63 +946,130 @@ class MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void showDetails() {
-    //getRideDetails();
+    debugPrint('=== showDetails called for rideID: $rideID ===');
+    // Get the Ride object from cache
+    final ride = _createRideFromCache(rideID);
+    if (ride == null) {
+      debugPrint('Failed to create ride from cache - showing error');
+      // Fallback to old dialog if conversion fails
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to load ride details')),
+      );
+      return;
+    }
+
+    debugPrint('Successfully created ride object, checking permissions...');
+    final canEdit = _canUserEditRide(ride);
+    debugPrint('User can edit: $canEdit');
+
+    debugPrint('Opening RideInfoDialog...');
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text("$rideTitle"),
-        scrollable: true,
-        content: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 25.0,
-              width: 100.0,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10.0),
-                color: rideVerified!
-                    ? Colors.green.withOpacity(0.7)
-                    : Colors.orange,
-              ),
-              child: rideVerified!
-                  ? const Padding(
-                      padding: EdgeInsets.only(left: 20.0, top: 3.0),
-                      child: Text("Verified"),
-                    )
-                  : const Padding(
-                      padding: EdgeInsets.only(left: 10, top: 3.0),
-                      child: Text("UnVerified"),
-                    ),
-            ),
-            const Gap(5),
-
-            DisplayDlgText(topic: "Ride Type", text: rideType!.titleName),
-            DisplayDlgText(topic: "Distance", text: rideDistance.toString()),
-            DisplayDlgText(topic: "Start Point", text: rideStartPointDesc!),
-            DisplayDlgText(topic: "Day of Week", text: rideDow!.titleName),
-            //'${rideStartTime.hourOfPeriod}:${rideStartTime.minute.toString().padLeft(2, '0')} ${rideStartTime.period == DayPeriod.am ? 'AM' : 'PM'}',
-            DisplayDlgText(
-                topic: "Start Time",
-                text:
-                    '${rideStartTime!.hourOfPeriod}:${rideStartTime!.minute.toString().padLeft(2, '0')} ${rideStartTime!.period == DayPeriod.am ? 'AM' : 'PM'}'),
-            DisplayDlgText(topic: "Contact", text: "$rideContact"),
-            const Divider(
-              height: 5.0,
-              thickness: 5.0,
-            ),
-            Text("$rideDesc"),
-
-            // Text("$rideStarttime"),
-            // Text("$rideContact"),
-          ],
-        ),
-        actions: [
-          //_deleteRideButton(),
-          _cancelDetailsButton(),
-          _editDetailsButton(),
-        ],
+      builder: (context) => RideInfoDialog(
+        ride: ride,
+        rideId: rideID,
+        onEdit: () {
+          debugPrint('Edit button pressed');
+          // Close the dialog and open the edit dialog
+          newRideDialog(rideLatlng!, true);
+        },
+        onDelete: canEdit ? () {
+          debugPrint('Delete button pressed');
+          // Handle ride deletion
+          _deleteRide(rideID);
+        } : null,
       ),
     );
+  }
+
+  bool _canUserEditRide(Ride ride) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    debugPrint('=== _canUserEditRide check ===');
+    debugPrint('Current user: ${currentUser?.uid}');
+    debugPrint('Ride created by: ${ride.createdBy}');
+
+    if (currentUser == null) {
+      debugPrint('No current user - cannot edit');
+      return false;
+    }
+
+    // Allow editing if user created the ride
+    final canEdit = ride.createdBy == currentUser.uid;
+    debugPrint('Can edit: $canEdit');
+    return canEdit;
+  }
+
+  Future<void> _deleteRide(String rideId) async {
+    debugPrint('=== _deleteRide called for rideId: $rideId ===');
+
+    // Show loading indicator
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Deleting ride...'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    // Retry logic for Firestore connectivity issues
+    int maxRetries = 3;
+    int retryDelay = 1; // seconds
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        debugPrint('Delete attempt $attempt of $maxRetries');
+        final repository = RideRepository();
+        debugPrint('Calling repository.deleteRide...');
+        await repository.deleteRide(rideId);
+        debugPrint('Repository.deleteRide completed successfully');
+
+        // Refresh the map data
+        debugPrint('Refreshing map data...');
+        await _getRideData();
+        debugPrint('Map data refresh completed');
+
+        if (mounted) {
+          debugPrint('Showing success message');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ride deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return; // Success - exit the retry loop
+      } catch (e) {
+        debugPrint('Delete attempt $attempt failed: $e');
+
+        // Check if it's a connectivity issue that we should retry
+        bool shouldRetry = e.toString().contains('unavailable') ||
+                          e.toString().contains('timeout') ||
+                          e.toString().contains('network');
+
+        if (shouldRetry && attempt < maxRetries) {
+          debugPrint('Retrying in $retryDelay seconds...');
+          await Future.delayed(Duration(seconds: retryDelay));
+          retryDelay *= 2; // Exponential backoff
+        } else {
+          // Final failure or non-retryable error
+          debugPrint('Final error in _deleteRide: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(shouldRetry
+                    ? 'Failed to delete ride after $maxRetries attempts. Please check your connection and try again.'
+                    : 'Failed to delete ride: ${e.toString().replaceAll('RideRepositoryException: Failed to delete ride: ', '')}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          break;
+        }
+      }
+    }
   }
 
   Widget _editDetailsButton() {
@@ -1171,43 +1091,36 @@ class MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  Widget _deleteRideButton() {
-    return TextButton(
-      style: TextButton.styleFrom(
-        textStyle: Theme.of(context).textTheme.labelLarge,
-      ),
-      child: const Text('Delete'),
-      onPressed: () async {
-        final FireStoreService fs = FireStoreService();
-        print("RideID: $rideID");
-        await fs.deleteRide(rideID).then((value) {
-          _getRideData();
-        });
-        //_getRideData();
-        setState(() {});
-        Navigator.pop(context);
-      },
-    );
-  }
 
   Widget placeMap() {
     return GoogleMap(
       mapType: MapType.normal,
       onMapCreated: _onMapCreated,
-      myLocationButtonEnabled: false,
+      myLocationButtonEnabled: true,
+      myLocationEnabled: true,
       scrollGesturesEnabled: true,
-      zoomControlsEnabled: true,
-      tiltGesturesEnabled: false,
+      zoomGesturesEnabled: true,
+      zoomControlsEnabled: false,
+      tiltGesturesEnabled: true,
+      rotateGesturesEnabled: true,
+      compassEnabled: true,
+      mapToolbarEnabled: false,
+      trafficEnabled: false,
+      buildingsEnabled: true,
+      indoorViewEnabled: true,
+      liteModeEnabled: false, // Ensure full map mode
       gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
         Factory<OneSequenceGestureRecognizer>(
           () => EagerGestureRecognizer(),
         ),
       },
       initialCameraPosition: _startPosition,
-      markers: Set<Marker>.of(_saveMarkers),
+      markers: _saveMarkers,
       onCameraMove: (CameraPosition position) {
-        // _updateMarkersPosition();
-        // _checkLatLngInViewableArea();
+        _setMarker();
+      },
+      onCameraIdle: () {
+        debugPrint('Camera movement stopped');
         _setMarker();
       },
       onLongPress: (point) {
@@ -1215,39 +1128,29 @@ class MapScreenState extends ConsumerState<MapScreen> {
         newRideDialog(point, false);
       },
       onTap: (point) {
+        debugPrint('Map tapped at: ${point.latitude}, ${point.longitude}');
+        // Don't center the map on tap - let users drag to navigate naturally
+        // Only update the current position for reference
         setState(() {
-          gotoSearchedPlace(point.latitude, point.longitude);
+          // Just update the state without moving the camera
         });
       },
     );
   }
 
-  void _getMapCenter() async {
-    final GoogleMapController controller = await mapController.future;
-    LatLng center = await controller.getLatLng(ScreenCoordinate(
-      x: MediaQuery.of(context).size.width ~/ 2,
-      y: MediaQuery.of(context).size.height ~/ 2,
-    ));
-    print('Map center: $center');
-  }
 
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    //Providers
-    final allSearchResults = ref.watch(placeResultsProvider);
-    final searchFlag = ref.watch(searchToggleProvider);
+    //Providers - removed unused provider watchers since MapSearchWidget handles its own state
 
     return Scaffold(
       appBar: AppBar(
           toolbarHeight: 50.0,
           centerTitle: false,
-          title: const Text(appTitle),
-
-          //backgroundColor: const Color(0xFFE2DFFF),
-          backgroundColor: context.colorScheme.onTertiary),
+          title: const Text(appTitle)),
       drawer: AppDrawer(
         onProfileTap: goToProfilePage,
         onSignOut: signUserOut,
@@ -1262,65 +1165,21 @@ class MapScreenState extends ConsumerState<MapScreen> {
                   width: screenWidth,
                   child: placeMap(),
                 ),
-                searchToggle ? showSearch() : Container(),
+                MapSearchWidget(
+                  isVisible: searchToggle,
+                  onLocationSelected: (lat, lng) {
+                    gotoSearchedPlace(lat, lng);
+                    setState(() {
+                      searchToggle = false;
+                    });
+                  },
+                  onClose: () {
+                    setState(() {
+                      searchToggle = false;
+                    });
+                  },
+                ),
                 //showDetailsToggle ? showDetails1() : Container(),
-                searchFlag.searchToggle
-                    ? allSearchResults.allReturnedResults.isNotEmpty
-                        ? Positioned(
-                            top: 100.0,
-                            left: 15.0,
-                            child: Container(
-                              height: 200.0,
-                              width: screenWidth - 30.0,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10.0),
-                                color: Colors.white.withOpacity(0.7),
-                              ),
-                              child: ListView(
-                                children: [
-                                  ...allSearchResults.allReturnedResults
-                                      .map((e) => buildListItem(e, searchFlag))
-                                ],
-                              ),
-                            ))
-                        : Positioned(
-                            top: 100.0,
-                            left: 15.0,
-                            child: Container(
-                              height: 200.0,
-                              width: screenWidth - 30.0,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10.0),
-                                color: Colors.white.withOpacity(0.7),
-                              ),
-                              child: Center(
-                                child: Column(children: [
-                                  const Text('No results to show',
-                                      style: TextStyle(
-                                          fontFamily: 'WorkSans',
-                                          fontWeight: FontWeight.w400)),
-                                  const SizedBox(height: 5.0),
-                                  SizedBox(
-                                    width: 125.0,
-                                    child: ElevatedButton(
-                                      onPressed: () {
-                                        searchFlag.toggleSearch();
-                                      },
-                                      child: const Center(
-                                        child: Text(
-                                          'Close this',
-                                          style: TextStyle(
-                                              //color: Colors.white,
-                                              fontFamily: 'WorkSans',
-                                              fontWeight: FontWeight.w300),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                ]),
-                              ),
-                            ))
-                    : Container(),
               ],
             ),
             const Gap(10),
@@ -1339,8 +1198,13 @@ class MapScreenState extends ConsumerState<MapScreen> {
                   searchToggle = true;
                 });
               },
-              icon: const Icon(Icons.search),
+              icon: const Icon(
+                Icons.search,
+                size: 24,
+              ),
               label: const Text('Search'),
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
             ),
           ),
           // Padding(
@@ -1361,7 +1225,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
     final GoogleMapController controller = await mapController.future;
 
     controller.animateCamera(CameraUpdate.newCameraPosition(
-        CameraPosition(target: LatLng(lat, lng), zoom: 10.5)));
+        CameraPosition(target: LatLng(lat, lng), zoom: _defaultZoom)));
     showDetailsToggle = false;
     _setMarker();
   }
@@ -1377,7 +1241,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
           var place = await MapServices().getPlace(placeItem.placeId);
           gotoSearchedPlace(place['geometry']['location']['lat'],
               place['geometry']['location']['lng']);
-          searchFlag.toggleSearch();
+          ref.read(searchToggleProvider.notifier).toggleSearch();
         },
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,

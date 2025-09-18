@@ -73,11 +73,11 @@ class _RegisterWebPageState extends State<RegisterWebPage> {
         showErrorMessage("Passwords don't match");
       }
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      print("SignIn Error: ${e.code}");
+      debugPrint("SignIn Error: ${e.code}");
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       // Show Error Message
       showErrorMessage(e.code);

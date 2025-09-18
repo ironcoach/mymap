@@ -2,7 +2,7 @@ import UIKit
 import Flutter
 import GoogleMaps
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
   override func application(
     _ application: UIApplication,
@@ -10,7 +10,13 @@ import GoogleMaps
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
 
-    GMSServices.provideAPIKey("AIzaSyB6ZNEIx7WZO3Vzl1kphBmwaNDpjpkifOU")
+    if let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+       let plist = NSDictionary(contentsOfFile: path),
+       let apiKey = plist["API_KEY"] as? String {
+      GMSServices.provideAPIKey(apiKey)
+    } else {
+      fatalError("Google Maps API key not found in GoogleService-Info.plist")
+    }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

@@ -51,6 +51,39 @@ enum RideType {
   }
 }
 
+enum RideDifficulty {
+  easy,
+  moderate,
+  difficult,
+  expert;
+
+  String get titleName {
+    switch (this) {
+      case RideDifficulty.easy:
+        return 'Easy';
+      case RideDifficulty.moderate:
+        return 'Moderate';
+      case RideDifficulty.difficult:
+        return 'Difficult';
+      case RideDifficulty.expert:
+        return 'Expert';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case RideDifficulty.easy:
+        return 'Suitable for beginners, flat terrain, short distance';
+      case RideDifficulty.moderate:
+        return 'Some hills, moderate distance, basic fitness required';
+      case RideDifficulty.difficult:
+        return 'Challenging terrain, longer distance, good fitness required';
+      case RideDifficulty.expert:
+        return 'Very challenging, steep climbs, high fitness level required';
+    }
+  }
+}
+
 class Ride {
   final int? id;
   final String? title;
@@ -68,6 +101,22 @@ class Ride {
   final RideType? rideType;
   final int? rideDistance;
 
+  // New verification system
+  final List<String>? verifiedByUsers;
+  final int? verificationCount;
+
+  // Rating system
+  final double? averageRating;
+  final int? totalRatings;
+  final Map<String, int>? userRatings; // userId -> rating (1-5)
+
+  // External route links
+  final String? rideWithGpsUrl;
+  final String? stravaUrl;
+
+  // Difficulty rating
+  final RideDifficulty? difficulty;
+
   const Ride({
     this.id,
     this.title,
@@ -84,6 +133,14 @@ class Ride {
     this.createdBy,
     this.rideType,
     this.rideDistance,
+    this.verifiedByUsers,
+    this.verificationCount,
+    this.averageRating,
+    this.totalRatings,
+    this.userRatings,
+    this.rideWithGpsUrl,
+    this.stravaUrl,
+    this.difficulty,
   });
 
   Ride copyWith({
@@ -95,13 +152,21 @@ class Ride {
     DayOfWeekType? dow,
     String? contact,
     String? phone,
-    String? startpointdesc,
-    LatLng? latLng,
+    String? startPointDesc,
+    LatLng? latlng,
     bool? verified,
     String? verifiedBy,
     String? createdBy,
     RideType? rideType,
     int? rideDistance,
+    List<String>? verifiedByUsers,
+    int? verificationCount,
+    double? averageRating,
+    int? totalRatings,
+    Map<String, int>? userRatings,
+    String? rideWithGpsUrl,
+    String? stravaUrl,
+    RideDifficulty? difficulty,
   }) {
     return Ride(
       id: id ?? this.id,
@@ -112,13 +177,21 @@ class Ride {
       dow: dow ?? this.dow,
       contact: contact ?? this.contact,
       phone: phone ?? this.phone,
-      startPointDesc: startPointDesc ?? startPointDesc,
-      latlng: latlng ?? latlng,
-      verified: verified ?? verified,
-      verifiedBy: verifiedBy ?? verifiedBy,
-      createdBy: createdBy ?? createdBy,
-      rideType: rideType ?? rideType,
-      rideDistance: rideDistance ?? rideDistance,
+      startPointDesc: startPointDesc ?? this.startPointDesc,
+      latlng: latlng ?? this.latlng,
+      verified: verified ?? this.verified,
+      verifiedBy: verifiedBy ?? this.verifiedBy,
+      createdBy: createdBy ?? this.createdBy,
+      rideType: rideType ?? this.rideType,
+      rideDistance: rideDistance ?? this.rideDistance,
+      verifiedByUsers: verifiedByUsers ?? this.verifiedByUsers,
+      verificationCount: verificationCount ?? this.verificationCount,
+      averageRating: averageRating ?? this.averageRating,
+      totalRatings: totalRatings ?? this.totalRatings,
+      userRatings: userRatings ?? this.userRatings,
+      rideWithGpsUrl: rideWithGpsUrl ?? this.rideWithGpsUrl,
+      stravaUrl: stravaUrl ?? this.stravaUrl,
+      difficulty: difficulty ?? this.difficulty,
     );
   }
 
@@ -139,26 +212,86 @@ class Ride {
       "createdBy": createdBy,
       "rideType": rideType,
       "rideDistance": rideDistance,
+      "verifiedByUsers": verifiedByUsers,
+      "verificationCount": verificationCount,
+      "averageRating": averageRating,
+      "totalRatings": totalRatings,
+      "userRatings": userRatings,
+      "rideWithGpsUrl": rideWithGpsUrl,
+      "stravaUrl": stravaUrl,
+      "difficulty": difficulty,
     };
   }
 
   factory Ride.fromJson(Map<String, dynamic> map) {
     return Ride(
-      id: map["id"] as int,
-      title: map["title"] as String,
-      desc: map["desc"] as String,
-      snippet: map["snippet"] as String,
-      startTime: map["startTime"] as DateTime,
-      dow: map["dow"] as DayOfWeekType,
-      contact: map["contactName"] as String,
-      phone: map["contactPhone"] as String,
-      startPointDesc: map["startPointDesc"] as String,
-      latlng: map["latlng"] as LatLng,
-      verified: map["verified"] as bool,
-      verifiedBy: map["verifiedBy"] as String,
-      createdBy: map["createdBy"] as String,
-      rideType: map["rideType"] as RideType,
-      rideDistance: map["rideDistance"] as int,
+      id: map["id"] as int?,
+      title: map["title"] as String?,
+      desc: map["desc"] as String?,
+      snippet: map["snippet"] as String?,
+      startTime: map["startTime"] as DateTime?,
+      dow: map["dow"] != null ? DayOfWeekType.values[map["dow"]] : null,
+      contact: map["contactName"] as String?,
+      phone: map["contactPhone"] as String?,
+      startPointDesc: map["startPointDesc"] as String?,
+      latlng: map["latlng"] as LatLng?,
+      verified: map["verified"] as bool?,
+      verifiedBy: map["verifiedBy"] as String?,
+      createdBy: map["createdBy"] as String?,
+      rideType: map["rideType"] != null ? RideType.values[map["rideType"]] : null,
+      rideDistance: map["rideDistance"] as int?,
+      verifiedByUsers: map["verifiedByUsers"] != null
+          ? List<String>.from(map["verifiedByUsers"])
+          : null,
+      verificationCount: map["verificationCount"] as int?,
+      averageRating: map["averageRating"] as double?,
+      totalRatings: map["totalRatings"] as int?,
+      userRatings: map["userRatings"] != null
+          ? Map<String, int>.from(map["userRatings"])
+          : null,
+      rideWithGpsUrl: map["rideWithGpsUrl"] as String?,
+      stravaUrl: map["stravaUrl"] as String?,
+      difficulty: map["difficulty"] != null
+          ? RideDifficulty.values[map["difficulty"]]
+          : null,
     );
+  }
+
+  // Convenience methods for new features
+
+  /// Check if a user has verified this ride
+  bool isVerifiedByUser(String userId) {
+    return verifiedByUsers?.contains(userId) ?? false;
+  }
+
+  /// Check if a user has rated this ride
+  bool isRatedByUser(String userId) {
+    return userRatings?.containsKey(userId) ?? false;
+  }
+
+  /// Get the rating given by a specific user
+  int? getUserRating(String userId) {
+    return userRatings?[userId];
+  }
+
+  /// Get a formatted verification count string
+  String get verificationDisplayText {
+    final count = verificationCount ?? 0;
+    if (count == 0) return 'Not verified';
+    if (count == 1) return 'Verified by 1 user';
+    return 'Verified by $count users';
+  }
+
+  /// Get a formatted rating display string
+  String get ratingDisplayText {
+    if (averageRating == null || totalRatings == null || totalRatings == 0) {
+      return 'No ratings';
+    }
+    return '${averageRating!.toStringAsFixed(1)} (${totalRatings!} rating${totalRatings! == 1 ? '' : 's'})';
+  }
+
+  /// Check if ride has external route links
+  bool get hasExternalRoutes {
+    return (rideWithGpsUrl?.isNotEmpty ?? false) || (stravaUrl?.isNotEmpty ?? false);
   }
 }

@@ -49,11 +49,11 @@ class _LoginPageState extends State<LoginPage> {
         password: passwordController.text.trim(),
       );
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      print("SignIn Error: ${e.code}");
+      debugPrint("SignIn Error: ${e.code}");
       // pop the loading circle
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       // Show Error Message
       showErrorMessage(e.code);
@@ -66,11 +66,9 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          //backgroundColor: Colors.deepPurple,
           title: Center(
             child: Text(
               message,
-              //style: const TextStyle(color: Colors.white),
             ),
           ),
         );
@@ -84,11 +82,9 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       builder: (context) {
         return const AlertDialog(
-          //backgroundColor: Colors.deepPurple,
           title: Center(
             child: Text(
               'Incorrect Password',
-              //style: TextStyle(color: Colors.white),
             ),
           ),
         );
@@ -99,7 +95,6 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      //backgroundColor: Colors.grey[300],
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -117,7 +112,6 @@ class _LoginPageState extends State<LoginPage> {
                   TextFormField(
                     keyboardType: TextInputType.emailAddress,
                     controller: emailController,
-                    //cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
                         labelText: 'Email', prefixIcon: Icon(Icons.email)),
@@ -137,7 +131,6 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: passToggle,
                     obscuringCharacter: "*",
                     controller: passwordController,
-                    //cursorColor: Colors.black,
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: 'Password',
@@ -173,7 +166,6 @@ class _LoginPageState extends State<LoginPage> {
                       children: [
                         Text(
                           'Forgot Password?',
-                          //style: TextStyle(color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -193,20 +185,17 @@ class _LoginPageState extends State<LoginPage> {
                         Expanded(
                           child: Divider(
                             thickness: 0.5,
-                            //color: Colors.grey[400],
                           ),
                         ),
                         Padding(
                           padding: EdgeInsets.symmetric(horizontal: 10.0),
                           child: Text(
                             'Or continue with',
-                            //style: TextStyle(color: Colors.grey[700]),
                           ),
                         ),
                         Expanded(
                           child: Divider(
                             thickness: 0.5,
-                            //color: Colors.grey[400],
                           ),
                         ),
                       ],
@@ -237,17 +226,16 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       const Text(
                         'Not a member?',
-                        //style: TextStyle(color: Colors.grey[700]),
                       ),
                       const SizedBox(width: 4),
                       GestureDetector(
                         onTap: widget.onTapRegister,
-                        child: const Text(
+                        child: Text(
                           'Register now',
-                          // style: TextStyle(
-                          //   color: Colors.blue,
-                          //   fontWeight: FontWeight.bold,
-                          // ),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
