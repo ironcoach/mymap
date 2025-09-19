@@ -5,7 +5,7 @@ class SampleRideService {
   static List<Ride> getSampleRides() {
     return [
       Ride(
-        id: 1,
+        id: "1",
         title: "Golden Gate Bridge Ride",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -23,7 +23,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 2,
+        id: "2",
         title: "Central Park Loop",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -41,7 +41,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 3,
+        id: "3",
         title: "Lakefront Trail",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -59,7 +59,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 4,
+        id: "4",
         title: "Boston Harborwalk",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -76,7 +76,7 @@ class SampleRideService {
         rideType: RideType.roadRide,
       ),
       Ride(
-        id: 5,
+        id: "5",
         title: "Los Angeles River Bike Path",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -94,7 +94,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 6,
+        id: "6",
         title: "Portland Eastbank Esplanade",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -112,7 +112,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 7,
+        id: "7",
         title: "Minneapolis Chain of Lakes",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -130,7 +130,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 8,
+        id: "8",
         title: "Austin Hike and Bike Trail",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -148,7 +148,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 9,
+        id: "9",
         title: "Seattle Burke-Gilman Trail",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -166,7 +166,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 10,
+        id: "10",
         title: "Denver Cherry Creek Trail",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -184,7 +184,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 11,
+        id: "11",
         title: "Cenna Cycle",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -202,7 +202,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 12,
+        id: "12",
         title: "Gravel Donkey Ride",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -220,7 +220,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 13,
+        id: "13",
         title: "Full Cycle",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc:
@@ -238,7 +238,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 14,
+        id: "14",
         title: "Tony's Awesome Ride",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc: "This ride leaves from my house whenever the FUCK I want!",
@@ -255,7 +255,7 @@ class SampleRideService {
         rideDistance: 20,
       ),
       Ride(
-        id: 15,
+        id: "15",
         title: "Tucson Shootout",
         startTime: DateTime.parse("2024-03-15 14:44:00.000"),
         desc: "Probably the most famous ride in the country.",

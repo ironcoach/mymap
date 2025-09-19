@@ -85,7 +85,7 @@ enum RideDifficulty {
 }
 
 class Ride {
-  final int? id;
+  final String? id;
   final String? title;
   final String? desc;
   final String? snippet;
@@ -100,6 +100,10 @@ class Ride {
   final String? createdBy;
   final RideType? rideType;
   final int? rideDistance;
+
+  // Separate latitude and longitude fields for efficient Firestore queries
+  final double? latitude;
+  final double? longitude;
 
   // New verification system
   final List<String>? verifiedByUsers;
@@ -133,6 +137,8 @@ class Ride {
     this.createdBy,
     this.rideType,
     this.rideDistance,
+    this.latitude,
+    this.longitude,
     this.verifiedByUsers,
     this.verificationCount,
     this.averageRating,
@@ -144,7 +150,7 @@ class Ride {
   });
 
   Ride copyWith({
-    int? id,
+    String? id,
     String? title,
     String? desc,
     String? snippet,
@@ -159,6 +165,8 @@ class Ride {
     String? createdBy,
     RideType? rideType,
     int? rideDistance,
+    double? latitude,
+    double? longitude,
     List<String>? verifiedByUsers,
     int? verificationCount,
     double? averageRating,
@@ -184,6 +192,8 @@ class Ride {
       createdBy: createdBy ?? this.createdBy,
       rideType: rideType ?? this.rideType,
       rideDistance: rideDistance ?? this.rideDistance,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       verifiedByUsers: verifiedByUsers ?? this.verifiedByUsers,
       verificationCount: verificationCount ?? this.verificationCount,
       averageRating: averageRating ?? this.averageRating,
@@ -212,6 +222,8 @@ class Ride {
       "createdBy": createdBy,
       "rideType": rideType,
       "rideDistance": rideDistance,
+      "latitude": latitude,
+      "longitude": longitude,
       "verifiedByUsers": verifiedByUsers,
       "verificationCount": verificationCount,
       "averageRating": averageRating,
@@ -225,7 +237,7 @@ class Ride {
 
   factory Ride.fromJson(Map<String, dynamic> map) {
     return Ride(
-      id: map["id"] as int?,
+      id: map["id"] as String?,
       title: map["title"] as String?,
       desc: map["desc"] as String?,
       snippet: map["snippet"] as String?,
@@ -240,6 +252,8 @@ class Ride {
       createdBy: map["createdBy"] as String?,
       rideType: map["rideType"] != null ? RideType.values[map["rideType"]] : null,
       rideDistance: map["rideDistance"] as int?,
+      latitude: map["latitude"] as double?,
+      longitude: map["longitude"] as double?,
       verifiedByUsers: map["verifiedByUsers"] != null
           ? List<String>.from(map["verifiedByUsers"])
           : null,

@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:geolocator/geolocator.dart';
 
-
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:mymap/constants/constants.dart';
 import 'package:mymap/models/auto_complete_result.dart';
@@ -20,6 +19,7 @@ import 'package:mymap/services/firestore.dart';
 import 'package:mymap/services/map_services.dart';
 import 'package:mymap/services/sample_ride_service.dart';
 import 'package:mymap/services/location_service.dart';
+import 'package:mymap/services/migration_service.dart';
 import 'package:mymap/repositories/ride_repository.dart';
 import 'package:mymap/widgets/dialogs/responsive_ride_dialog.dart';
 import 'package:mymap/widgets/dialogs/ride_info_dialog.dart';
@@ -49,9 +49,9 @@ class MapScreenState extends ConsumerState<MapScreen> {
   static const LatLng _defaultPosition = LatLng(40.017555, -105.258336);
   static const double _defaultZoom = 10.5;
   static const int _searchDebounceMs = 700;
-  ///
-  ///
 
+  ///
+  ///
 
   final Set<Marker> _saveMarkers = <Marker>{};
 
@@ -63,6 +63,9 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   //Debounce to throttle async calls during location search
   Timer? _debounce;
+
+  //Debounce to throttle viewport loading during camera movement
+  Timer? _viewportLoadTimer;
 
   TimeOfDay _selectedTime = TimeOfDay.now();
   DateTime _selectedDT = DateTime.now();
@@ -90,8 +93,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
   int? rideDistance;
   LatLng? rideLatlng;
 
-
-
 /////////////////
   ///
   ///
@@ -111,9 +112,33 @@ class MapScreenState extends ConsumerState<MapScreen> {
   void _onMapCreated(GoogleMapController controller) {
     mapController.complete(controller);
     _setMarker();
-    
+
     // Debug: Check if map is ready
     debugPrint('Google Map created and ready');
+
+    // Note: Sample rides already exist in database
+
+    // Delay viewport loading until map is fully initialized
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      _loadRidesInViewport();
+    });
+  }
+
+  /// Handle camera movement - cancel any pending viewport load
+  void _onCameraMove(CameraPosition position) {
+    // Cancel any pending viewport load timer
+    _viewportLoadTimer?.cancel();
+  }
+
+  /// Handle camera idle - trigger debounced viewport loading
+  void _onCameraIdle() {
+    // Cancel any existing timer
+    _viewportLoadTimer?.cancel();
+
+    // Start new timer with debounce
+    _viewportLoadTimer = Timer(const Duration(milliseconds: 800), () {
+      _loadRidesInViewport();
+    });
   }
 
   final user = FirebaseAuth.instance.currentUser!;
@@ -173,14 +198,70 @@ class MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-
   @override
   void initState() {
     super.initState();
     _determinePosition();
-    _getRideData();
+    _runDatabaseMigration();
+    // Note: Ride loading now handled by viewport loading in _onMapCreated()
 
     //setState(() {});
+  }
+
+  /// Runs the database migration to convert GeoPoint to separate lat/lng fields
+  Future<void> _runDatabaseMigration() async {
+    try {
+      debugPrint('Starting database migration...');
+
+      // First, let's inspect what's actually in the database
+      await _inspectDatabaseDocument();
+
+      // Force update to see if fields actually get written
+      final result =
+          await MigrationService.migrateGeoPointToLatLng(forceUpdate: true);
+
+      debugPrint('Migration completed: ${result.summary}');
+
+      if (result.wasSuccessful) {
+        debugPrint('Migration successful! Verifying...');
+        final verified = await MigrationService.verifyMigration();
+        if (verified) {
+          debugPrint('Migration verification passed ✅');
+        } else {
+          debugPrint('Migration verification failed ❌');
+        }
+      } else {
+        debugPrint('Migration had errors: ${result.errors}');
+      }
+
+      // Inspect again after migration
+      await _inspectDatabaseDocument();
+    } catch (e) {
+      debugPrint('Migration failed: $e');
+    }
+  }
+
+  /// Inspects the first document to see what fields exist
+  Future<void> _inspectDatabaseDocument() async {
+    try {
+      debugPrint('=== DOCUMENT INSPECTION (limit 1 from rides collection) ===');
+      final querySnapshot =
+          await FirebaseFirestore.instance.collection('rides').limit(1).get();
+      debugPrint(
+          'Inspection query returned ${querySnapshot.docs.length} documents');
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data();
+        debugPrint('Document ID: ${doc.id}');
+        debugPrint('All fields in document:');
+        data.forEach((key, value) {
+          debugPrint('  $key: $value (${value.runtimeType})');
+        });
+        debugPrint('=== END INSPECTION ===');
+      }
+    } catch (e) {
+      debugPrint('Failed to inspect document: $e');
+    }
   }
 
   @override
@@ -198,22 +279,21 @@ class MapScreenState extends ConsumerState<MapScreen> {
     super.dispose();
   }
 
-
   Future<void> _determinePosition() async {
     final locationService = LocationService();
     final result = await locationService.getCurrentLocation();
-    
+
     if (!mounted) return;
-    
+
     _startPosition = locationService.getCameraPosition(result);
     gotoSearchedPlace(result.position.latitude, result.position.longitude);
-    
+
     if (result.hasError) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.errorMessage!)),
       );
     }
-    
+
     setState(() {});
   }
 
@@ -259,7 +339,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
           distanceFilter: 100,
         ),
       );
-      
+
       if (mounted) {
         _startPosition = CameraPosition(
           target: LatLng(position.latitude, position.longitude),
@@ -282,7 +362,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
     //return await Geolocator.getCurrentPosition();
   }
-
 
   Future<void> _getRideData() async {
     debugPrint('=== _getRideData started ===');
@@ -317,8 +396,8 @@ class MapScreenState extends ConsumerState<MapScreen> {
       for (var doc in querySnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
 
-        // Store ride data for quick access
-        _ridesData[doc.id] = data;
+        // Caching disabled to avoid data inconsistency issues
+        // _ridesData[doc.id] = data;
 
         final rideTypeIndex = data['rideType'] as int? ?? 0;
         if (rideTypeIndex >= RideType.values.length) continue;
@@ -371,33 +450,184 @@ class MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-////////////////////////////////////
-  void addSampleRidesToFirestore() async {
-    final fs = FireStoreService();
-    final sampleRides = SampleRideService.getSampleRides();
-    
-    final error = await fs.addMultipleRides(sampleRides);
-    
-    if (!mounted) return;
-    
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add sample rides: $error')),
+  /// Load rides within the current map viewport
+  Future<void> _loadRidesInViewport() async {
+    debugPrint('=== _loadRidesInViewport started ===');
+
+    final GoogleMapController controller = await mapController.future;
+    if (controller == null) {
+      debugPrint('Map controller not ready, skipping viewport load');
+      return;
+    }
+
+    try {
+      // Get current map bounds
+      final LatLngBounds bounds = await controller.getVisibleRegion();
+
+      debugPrint(
+          'Viewport bounds: NE(${bounds.northeast.latitude}, ${bounds.northeast.longitude}), SW(${bounds.southwest.latitude}, ${bounds.southwest.longitude})');
+
+      // Check for invalid bounds (map not ready yet)
+      if (bounds.northeast.latitude <= -90 ||
+          bounds.southwest.latitude <= -90 ||
+          bounds.northeast.longitude <= -180 ||
+          bounds.southwest.longitude <= -180) {
+        debugPrint(
+            'Invalid viewport bounds detected - map not ready yet, skipping load');
+        return;
+      }
+
+      // Clear existing markers and cached data
+      _saveMarkers.clear();
+      _ridesData.clear();
+
+      // Load marker icons only if not cached
+      _cachedMarkers ??= {
+        RideType.gravelRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/bikeRising.png'),
+        RideType.roadRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/roadRide.png'),
+        RideType.mtbRide: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/greenBike.png'),
+        RideType.bikeEvent: await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            'assets/mapicons/blueRide.png'),
+      };
+
+      // Get rides in viewport using repository
+      final repository = RideRepository();
+      final rides = await repository.getRidesInViewport(
+        northLat: bounds.northeast.latitude,
+        southLat: bounds.southwest.latitude,
+        eastLng: bounds.northeast.longitude,
+        westLng: bounds.southwest.longitude,
       );
-    } else {
-      _getRideData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sample rides added successfully!')),
-      );
+
+      debugPrint('Found ${rides.length} rides in viewport');
+
+      // Debug: If no rides in viewport, check total rides in database
+      if (rides.isEmpty) {
+        debugPrint(
+            '=== DEBUG: No rides in viewport, checking total rides in database ===');
+        try {
+          final querySnapshot =
+              await FirebaseFirestore.instance.collection('rides').get();
+          debugPrint('Total rides in database: ${querySnapshot.docs.length}');
+
+          if (querySnapshot.docs.isNotEmpty) {
+            debugPrint('Sample ride locations and data structure:');
+            for (var doc in querySnapshot.docs.take(3)) {
+              final data = doc.data();
+              debugPrint('  - Doc ID: ${doc.id}');
+              debugPrint('  - Title: ${data['title']}');
+              debugPrint(
+                  '  - latlng field type: ${data['latlng'].runtimeType}');
+              debugPrint('  - latlng value: ${data['latlng']}');
+
+              final latlng = data['latlng'] as GeoPoint?;
+              if (latlng != null) {
+                debugPrint(
+                    '  - Parsed: ${latlng.latitude}, ${latlng.longitude}');
+              } else {
+                debugPrint('  - Failed to parse as GeoPoint');
+              }
+              debugPrint('---');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error checking total rides: $e');
+        }
+        debugPrint('=== END DEBUG ===');
+      }
+
+      // Create markers for rides in viewport
+      for (var ride in rides) {
+        if (ride.latlng == null) continue;
+
+        // Store ride data for quick access (convert back to map format)
+        final data = {
+          'id': ride.id,
+          'title': ride.title,
+          'desc': ride.desc,
+          'snippet': ride.snippet,
+          'dow': ride.dow?.index,
+          'startTime': ride.startTime,
+          'startPointDesc': ride.startPointDesc,
+          'contactName': ride.contact,
+          'contactPhone': ride.phone,
+          'latlng': GeoPoint(ride.latlng!.latitude, ride.latlng!.longitude),
+          'verified': ride.verified,
+          'verifiedBy': ride.verifiedBy,
+          'rideType': ride.rideType?.index,
+          'distance': ride.rideDistance,
+          'createdBy': ride.createdBy,
+          'verifiedByUsers': ride.verifiedByUsers,
+          'verificationCount': ride.verificationCount,
+          'averageRating': ride.averageRating,
+          'totalRatings': ride.totalRatings,
+          'userRatings': ride.userRatings,
+          'rideWithGpsUrl': ride.rideWithGpsUrl,
+          'stravaUrl': ride.stravaUrl,
+          'difficulty': ride.difficulty?.index,
+        };
+
+        // Caching disabled to avoid data inconsistency issues
+        final docId = ride.id ?? 'unknown_${rides.indexOf(ride)}';
+        // _ridesData[docId] = data;
+
+        final type = ride.rideType ?? RideType.roadRide;
+        final markerIcon = _cachedMarkers![type]!;
+
+        final marker = Marker(
+          markerId: MarkerId(docId),
+          position: ride.latlng!,
+          infoWindow: InfoWindow(
+            onTap: () {
+              rideID = docId;
+              // setRideDetailsFromCache(docId); // No longer using cache
+              if (mounted) {
+                showDetails();
+                setState(() {});
+              }
+            },
+            title: ride.title ?? 'Untitled Ride',
+            snippet: ride.snippet ?? '',
+          ),
+          onTap: () {},
+          icon: markerIcon,
+        );
+        _saveMarkers.add(marker);
+      }
+
+      debugPrint('Created ${_saveMarkers.length} markers for viewport');
+
+      // Update UI
+      if (mounted) {
+        setState(() {});
+      }
+
+      debugPrint('=== _loadRidesInViewport completed successfully ===');
+    } catch (e) {
+      debugPrint('=== ERROR in _loadRidesInViewport ===');
+      debugPrint('Error details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load rides in viewport: $e')),
+        );
+      }
     }
   }
 
-
+// Sample data method removed - using existing database with 42 rides
 
   void newRideDialog(LatLng latlng, bool isEdit) {
     showDialog(
       context: context,
-      barrierDismissible: true, // Allow barrier dismissal but handle unsaved changes
+      barrierDismissible:
+          true, // Allow barrier dismissal but handle unsaved changes
       builder: (context) => ResponsiveRideDialog(
         location: latlng,
         isEdit: isEdit,
@@ -405,6 +635,23 @@ class MapScreenState extends ConsumerState<MapScreen> {
         onSave: _handleRideSave,
         onCancel: () {
           debugPrint('Dialog cancelled by user');
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
+  void _editRideDialog(Ride existingRide) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => ResponsiveRideDialog(
+        location: existingRide.latlng!,
+        isEdit: true,
+        existingRide: existingRide,
+        onSave: _handleRideSave,
+        onCancel: () {
+          debugPrint('Edit dialog cancelled by user');
           Navigator.pop(context);
         },
       ),
@@ -463,20 +710,21 @@ class MapScreenState extends ConsumerState<MapScreen> {
       debugPrint('About to refresh map data...');
 
       // Refresh the map data (dialog closes itself)
-      _getRideData();
+      _loadRidesInViewport();
 
       debugPrint('Map data refresh initiated');
 
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEdit ? 'Ride updated successfully!' : 'Ride created successfully!'),
+          content: Text(isEdit
+              ? 'Ride updated successfully!'
+              : 'Ride created successfully!'),
           backgroundColor: Colors.green,
         ),
       );
 
       debugPrint('Success message shown, _handleRideSave completing');
-
     } catch (e) {
       debugPrint('=== ERROR in _handleRideSave ===');
       debugPrint('Error details: $e');
@@ -485,16 +733,19 @@ class MapScreenState extends ConsumerState<MapScreen> {
       if (!mounted) return;
 
       // Check if this is a timeout error (which means operation likely succeeded)
-      if (e.toString().contains('timed out') || e.toString().contains('TimeoutException')) {
+      if (e.toString().contains('timed out') ||
+          e.toString().contains('TimeoutException')) {
         debugPrint('Treating timeout as soft success - refreshing data');
 
         // Refresh map data since operation likely succeeded
-        _getRideData();
+        _loadRidesInViewport();
 
         // Show optimistic success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isEdit ? 'Ride updated (please verify)' : 'Ride created (please verify)'),
+            content: Text(isEdit
+                ? 'Ride updated (please verify)'
+                : 'Ride created (please verify)'),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 3),
           ),
@@ -763,10 +1014,10 @@ class MapScreenState extends ConsumerState<MapScreen> {
         } else {
           await fs.addRide(ride);
         }
-        
+
         if (!mounted) return;
-        
-        _getRideData();
+
+        _loadRidesInViewport();
         Navigator.pop(context);
         //clear controllers
         titleController.clear();
@@ -795,8 +1046,14 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   // Fast method using cached data instead of Firestore call
   Ride? _createRideFromCache(String docId) {
+    debugPrint('=== _createRideFromCache called with docId: $docId ===');
+    debugPrint('_ridesData cache contains ${_ridesData.length} entries');
+    debugPrint('Cache keys: ${_ridesData.keys.toList()}');
     final data = _ridesData[docId];
-    if (data == null) return null;
+    if (data == null) {
+      debugPrint('No data found in cache for docId: $docId');
+      return null;
+    }
 
     try {
       GeoPoint pos = data["latlng"];
@@ -808,7 +1065,9 @@ class MapScreenState extends ConsumerState<MapScreen> {
         desc: data['desc'],
         snippet: data['snippet'],
         dow: data['dow'] != null ? DayOfWeekType.values[data['dow']] : null,
-        startTime: data['startTime']?.toDate(),
+        startTime: data['startTime'] is DateTime
+            ? data['startTime']
+            : data['startTime']?.toDate(),
         startPointDesc: data['startPointDesc'],
         contact: data['contactName'],
         phone: data['contactPhone'],
@@ -816,16 +1075,24 @@ class MapScreenState extends ConsumerState<MapScreen> {
         verified: data['verified'] ?? false,
         verifiedBy: data['verifiedBy'],
         createdBy: data['createdBy'],
-        rideType: data['rideType'] != null ? RideType.values[data['rideType']] : RideType.roadRide,
+        rideType: data['rideType'] != null
+            ? RideType.values[data['rideType']]
+            : RideType.roadRide,
         rideDistance: data['distance'],
-        verifiedByUsers: data['verifiedByUsers'] != null ? List<String>.from(data['verifiedByUsers']) : [],
+        verifiedByUsers: data['verifiedByUsers'] != null
+            ? List<String>.from(data['verifiedByUsers'])
+            : [],
         verificationCount: data['verificationCount'] ?? 0,
         averageRating: data['averageRating']?.toDouble(),
         totalRatings: data['totalRatings'] ?? 0,
-        userRatings: data['userRatings'] != null ? Map<String, int>.from(data['userRatings']) : {},
+        userRatings: data['userRatings'] != null
+            ? Map<String, int>.from(data['userRatings'])
+            : {},
         rideWithGpsUrl: data['rideWithGpsUrl'],
         stravaUrl: data['stravaUrl'],
-        difficulty: data['difficulty'] != null ? RideDifficulty.values[data['difficulty']] : null,
+        difficulty: data['difficulty'] != null
+            ? RideDifficulty.values[data['difficulty']]
+            : null,
       );
     } catch (e) {
       debugPrint('Error creating Ride from cached data: $e');
@@ -836,7 +1103,8 @@ class MapScreenState extends ConsumerState<MapScreen> {
   void setRideDetailsFromCache(String docId) {
     final data = _ridesData[docId];
     if (data == null) {
-      debugPrint('No cached data found for ride $docId, falling back to Firestore');
+      debugPrint(
+          'No cached data found for ride $docId, falling back to Firestore');
       getRideDetails();
       return;
     }
@@ -859,7 +1127,8 @@ class MapScreenState extends ConsumerState<MapScreen> {
       rideStartTime = TimeOfDay.fromDateTime(myDateTime);
       rideType = RideType.values[data['rideType']];
     } catch (e) {
-      debugPrint('Error loading cached ride data: $e, falling back to Firestore');
+      debugPrint(
+          'Error loading cached ride data: $e, falling back to Firestore');
       getRideDetails();
     }
   }
@@ -914,7 +1183,9 @@ class MapScreenState extends ConsumerState<MapScreen> {
                         searchToggle = false;
                         _searchController.text = '';
                         if (searchFlag.searchToggle) {
-                          ref.read(searchToggleProvider.notifier).toggleSearch();
+                          ref
+                              .read(searchToggleProvider.notifier)
+                              .toggleSearch();
                         }
                       });
                     },
@@ -923,7 +1194,8 @@ class MapScreenState extends ConsumerState<MapScreen> {
               if (_debounce?.isActive ?? false) {
                 _debounce?.cancel();
               }
-              _debounce = Timer(const Duration(milliseconds: _searchDebounceMs), () async {
+              _debounce = Timer(const Duration(milliseconds: _searchDebounceMs),
+                  () async {
                 if (value.length > 2) {
                   if (!searchFlag.searchToggle) {
                     ref.read(searchToggleProvider.notifier).toggleSearch();
@@ -932,7 +1204,9 @@ class MapScreenState extends ConsumerState<MapScreen> {
                   List<AutoCompleteResult> searchResults =
                       await MapServices().searchPlaces(value);
 
-                  ref.read(placeResultsProvider.notifier).setResults(searchResults);
+                  ref
+                      .read(placeResultsProvider.notifier)
+                      .setResults(searchResults);
                 } else {
                   List<AutoCompleteResult> emptyList = [];
                   ref.read(placeResultsProvider.notifier).setResults(emptyList);
@@ -945,41 +1219,59 @@ class MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  void showDetails() {
+  void showDetails() async {
     debugPrint('=== showDetails called for rideID: $rideID ===');
-    // Get the Ride object from cache
-    final ride = _createRideFromCache(rideID);
-    if (ride == null) {
-      debugPrint('Failed to create ride from cache - showing error');
-      // Fallback to old dialog if conversion fails
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to load ride details')),
+
+    try {
+      // Fetch the ride directly from Firestore instead of using cache
+      final repository = RideRepository();
+      final ride = await repository.getRideById(rideID);
+
+      if (ride == null) {
+        debugPrint('Ride not found in Firestore for ID: $rideID');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ride not found')),
+          );
+        }
+        return;
+      }
+
+      debugPrint(
+          'Successfully fetched ride from Firestore, checking permissions...');
+      final canEdit = _canUserEditRide(ride);
+      debugPrint('User can edit: $canEdit');
+
+      if (!mounted) return;
+
+      debugPrint('Opening RideInfoDialog...');
+      showDialog(
+        context: context,
+        builder: (context) => RideInfoDialog(
+          ride: ride,
+          rideId: rideID,
+          onEdit: () {
+            debugPrint('Edit button pressed');
+            // Close the dialog and open the edit dialog
+            _editRideDialog(ride);
+          },
+          onDelete: canEdit
+              ? () {
+                  debugPrint('Delete button pressed');
+                  // Handle ride deletion
+                  _deleteRide(rideID);
+                }
+              : null,
+        ),
       );
-      return;
+    } catch (e) {
+      debugPrint('Error fetching ride details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load ride details: $e')),
+        );
+      }
     }
-
-    debugPrint('Successfully created ride object, checking permissions...');
-    final canEdit = _canUserEditRide(ride);
-    debugPrint('User can edit: $canEdit');
-
-    debugPrint('Opening RideInfoDialog...');
-    showDialog(
-      context: context,
-      builder: (context) => RideInfoDialog(
-        ride: ride,
-        rideId: rideID,
-        onEdit: () {
-          debugPrint('Edit button pressed');
-          // Close the dialog and open the edit dialog
-          newRideDialog(rideLatlng!, true);
-        },
-        onDelete: canEdit ? () {
-          debugPrint('Delete button pressed');
-          // Handle ride deletion
-          _deleteRide(rideID);
-        } : null,
-      ),
-    );
   }
 
   bool _canUserEditRide(Ride ride) {
@@ -1027,7 +1319,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
         // Refresh the map data
         debugPrint('Refreshing map data...');
-        await _getRideData();
+        await _loadRidesInViewport();
         debugPrint('Map data refresh completed');
 
         if (mounted) {
@@ -1045,8 +1337,8 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
         // Check if it's a connectivity issue that we should retry
         bool shouldRetry = e.toString().contains('unavailable') ||
-                          e.toString().contains('timeout') ||
-                          e.toString().contains('network');
+            e.toString().contains('timeout') ||
+            e.toString().contains('network');
 
         if (shouldRetry && attempt < maxRetries) {
           debugPrint('Retrying in $retryDelay seconds...');
@@ -1076,6 +1368,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
     return ElevatedButton(
       onPressed: () {
         Navigator.pop(context);
+        // Note: This function may need current ride data for proper editing
         newRideDialog(rideLatlng!, true);
       },
       child: const Text("Edit"),
@@ -1091,11 +1384,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-
   Widget placeMap() {
     return GoogleMap(
       mapType: MapType.normal,
       onMapCreated: _onMapCreated,
+      onCameraMove: _onCameraMove,
+      onCameraIdle: _onCameraIdle,
       myLocationButtonEnabled: true,
       myLocationEnabled: true,
       scrollGesturesEnabled: true,
@@ -1116,13 +1410,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
       },
       initialCameraPosition: _startPosition,
       markers: _saveMarkers,
-      onCameraMove: (CameraPosition position) {
-        _setMarker();
-      },
-      onCameraIdle: () {
-        debugPrint('Camera movement stopped');
-        _setMarker();
-      },
       onLongPress: (point) {
         rideLatlng = point;
         newRideDialog(point, false);
@@ -1138,7 +1425,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -1148,9 +1434,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-          toolbarHeight: 50.0,
-          centerTitle: false,
-          title: const Text(appTitle)),
+          toolbarHeight: 50.0, centerTitle: false, title: const Text(appTitle)),
       drawer: AppDrawer(
         onProfileTap: goToProfilePage,
         onSignOut: signUserOut,
