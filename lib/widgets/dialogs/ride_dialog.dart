@@ -69,7 +69,7 @@ class _RideDialogState extends State<RideDialog> {
       contactController.text = ride.contact ?? '';
       phoneController.text = ride.phone ?? '';
       distanceController.text = ride.rideDistance?.toString() ?? '0';
-      externalRouteController.text = ride.rideWithGpsUrl ?? ride.stravaUrl ?? '';
+      externalRouteController.text = ride.routeUrl ?? '';
       selectedRideType = ride.rideType ?? RideType.roadRide;
       selectedDifficulty = ride.difficulty ?? RideDifficulty.moderate;
       selectedDow = ride.dow ?? DayOfWeekType.monday;
@@ -146,7 +146,7 @@ class _RideDialogState extends State<RideDialog> {
         rideType: selectedRideType,
         rideDistance: int.tryParse(distanceController.text.trim()) ?? 0,
         difficulty: selectedDifficulty,
-        rideWithGpsUrl: externalRouteController.text.trim().isEmpty ? null : externalRouteController.text.trim(),
+        routeUrl: externalRouteController.text.trim().isEmpty ? null : externalRouteController.text.trim(),
       );
 
       await widget.onSave(ride, widget.isEdit);

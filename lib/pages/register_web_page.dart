@@ -54,33 +54,57 @@ class _RegisterWebPageState extends State<RegisterWebPage> {
     // try sign up
     try {
       if (passwordConfirmed()) {
-        //User? myUser = FirebaseAuth.instance.currentUser;
-        //UserCredential user =
+        debugPrint('Registration: Creating user with email: ${emailController.text.trim()}');
+
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: emailController.text.trim(),
           password: passwordController.text.trim(),
         );
-        User? myUser = FirebaseAuth.instance.currentUser;
 
-        FirebaseFirestore.instance.collection("users").doc(myUser!.email).set({
-          'firstname': firstNameController.text.trim(),
-          'lastname': lastNameController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'email': myUser.email,
-          'id': myUser.uid,
-        });
+        User? myUser = FirebaseAuth.instance.currentUser;
+        debugPrint('Registration: User created successfully, UID: ${myUser?.uid}');
+
+        // Create user document in Firestore with proper error handling
+        if (myUser != null) {
+          debugPrint('Registration: Writing user document to Firestore...');
+
+          await FirebaseFirestore.instance.collection("users").doc(myUser.email).set({
+            'firstname': firstNameController.text.trim(),
+            'lastname': lastNameController.text.trim(),
+            'phone': phoneController.text.trim(),
+            'email': myUser.email,
+            'id': myUser.uid,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          debugPrint('Registration: ✅ User document created successfully');
+        }
       } else {
         showErrorMessage("Passwords don't match");
       }
       // pop the loading circle
       if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      debugPrint("SignIn Error: ${e.code}");
+      debugPrint("Registration Firebase Auth Error: ${e.code} - ${e.message}");
       // pop the loading circle
       if (mounted) Navigator.pop(context);
 
       // Show Error Message
-      showErrorMessage(e.code);
+      showErrorMessage('Auth Error: ${e.code}');
+    } on FirebaseException catch (e) {
+      debugPrint("Registration Firestore Error: ${e.code} - ${e.message}");
+      // pop the loading circle
+      if (mounted) Navigator.pop(context);
+
+      // Show Error Message
+      showErrorMessage('Database Error: ${e.code}');
+    } catch (e) {
+      debugPrint("Registration General Error: $e");
+      // pop the loading circle
+      if (mounted) Navigator.pop(context);
+
+      // Show Error Message
+      showErrorMessage('Unknown Error: $e');
     }
   }
 

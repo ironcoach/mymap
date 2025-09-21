@@ -11,9 +11,9 @@ class RideRepository {
   factory RideRepository() => _instance;
   RideRepository._internal();
 
-  final CollectionReference _ridesCollection = 
+  final CollectionReference _ridesCollection =
       FirebaseFirestore.instance.collection('rides');
-  
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String? get currentUserId => _auth.currentUser?.uid;
@@ -45,8 +45,10 @@ class RideRepository {
         if (ride.latlng == null) return false;
 
         final distance = _calculateDistance(
-          latitude, longitude,
-          ride.latlng!.latitude, ride.latlng!.longitude,
+          latitude,
+          longitude,
+          ride.latlng!.latitude,
+          ride.latlng!.longitude,
         );
 
         return distance <= radiusKm;
@@ -56,7 +58,7 @@ class RideRepository {
     }
   }
 
-  /// Get rides within a viewport (map bounds)
+  /// Get rides within a viewport (map bounds) - FORCE SERVER READ
   Future<List<Ride>> getRidesInViewport({
     required double northLat,
     required double southLat,
@@ -64,58 +66,40 @@ class RideRepository {
     required double westLng,
   }) async {
     try {
-      debugPrint('=== getRidesInViewport (NEW EFFICIENT VERSION) ===');
+      debugPrint('=== getRidesInViewport (FORCED SERVER READ) ===');
       debugPrint('Bounds: N:$northLat, S:$southLat, E:$eastLng, W:$westLng');
 
-      // Efficient Firestore query using separate latitude field
-      debugPrint('Attempting latitude query: latitude >= $southLat AND latitude <= $northLat');
+      // FORCE SERVER READ to avoid cached failed writes
       final querySnapshot = await _ridesCollection
           .where('latitude', isGreaterThanOrEqualTo: southLat)
           .where('latitude', isLessThanOrEqualTo: northLat)
-          .get();
+          .get(const GetOptions(source: Source.server)); // FORCE SERVER
 
-      debugPrint('Latitude query succeeded - returned ${querySnapshot.docs.length} documents');
+      debugPrint(
+          'Server query returned ${querySnapshot.docs.length} documents');
 
-      // Debug: Print all document IDs and titles returned by Firestore
-      debugPrint('=== ALL DOCUMENTS RETURNED BY FIRESTORE ===');
-      for (int i = 0; i < querySnapshot.docs.length; i++) {
-        final doc = querySnapshot.docs[i];
-        final data = doc.data() as Map<String, dynamic>;
-        debugPrint('Doc $i: ID=${doc.id}, Title="${data['title']}"');
+      // Debug: Check document metadata
+      for (var doc in querySnapshot.docs.take(3)) {
+        debugPrint(
+            'Doc ${doc.id}: fromCache=${doc.metadata.isFromCache}, pendingWrites=${doc.metadata.hasPendingWrites}');
       }
-      debugPrint('=== END DOCUMENT LIST ===');
 
-      debugPrint('Firestore returned ${querySnapshot.docs.length} rides within latitude bounds');
-
-      // Filter by longitude client-side (due to Firestore compound query limitations)
+      // Filter by longitude client-side
       final ridesInViewport = querySnapshot.docs
           .map((doc) => _mapDocumentToRide(doc))
           .where((ride) {
-            // Use the new longitude field if available, fallback to latlng
-            final lng = ride.longitude ?? ride.latlng?.longitude;
-            if (lng == null) return false;
-
-            // Handle longitude wrapping around international date line
-            if (westLng <= eastLng) {
-              // Normal case (doesn't cross date line)
-              return lng >= westLng && lng <= eastLng;
-            } else {
-              // Crosses international date line
-              return lng >= westLng || lng <= eastLng;
-            }
-          })
-          .toList();
-
-      debugPrint('After longitude filtering: ${ridesInViewport.length} rides in viewport');
-
-      // Debug: Print first few rides for verification
-      for (int i = 0; i < ridesInViewport.length && i < 3; i++) {
-        final ride = ridesInViewport[i];
-        final lat = ride.latitude ?? ride.latlng?.latitude;
         final lng = ride.longitude ?? ride.latlng?.longitude;
-        debugPrint('Ride ${i + 1}: "${ride.title}" at $lat, $lng');
-      }
+        if (lng == null) return false;
 
+        if (westLng <= eastLng) {
+          return lng >= westLng && lng <= eastLng;
+        } else {
+          return lng >= westLng || lng <= eastLng;
+        }
+      }).toList();
+
+      debugPrint(
+          'After longitude filtering: ${ridesInViewport.length} rides in viewport');
       return ridesInViewport;
     } catch (e) {
       debugPrint('Error in getRidesInViewport: $e');
@@ -127,48 +111,42 @@ class RideRepository {
   Future<String> addRide(Ride ride) async {
     try {
       debugPrint('Repository: Starting addRide for ride: ${ride.title}');
-      debugPrint('Repository: Firestore instance: ${_ridesCollection.firestore.app.name}');
-      debugPrint('Repository: Collection path: ${_ridesCollection.path}');
-      debugPrint('Repository: Starting _mapRideToFirestore...');
-      final rideData = _mapRideToFirestore(ride);
-      debugPrint('Repository: Mapping completed, data keys: ${rideData.keys.toList()}');
-      debugPrint('Repository: Full ride data: $rideData');
 
-      // For now, allow anonymous ride creation for testing
-      // TODO: Implement proper authentication system
-      if (currentUserId != null) {
-        rideData['createdBy'] = currentUserId;
-        debugPrint('Repository: Set createdBy to: $currentUserId');
-      } else {
-        rideData['createdBy'] = 'anonymous';
-        debugPrint('Repository: Set createdBy to: anonymous');
+      // Check if user is authenticated
+      if (currentUserId == null) {
+        throw RideRepositoryException('User must be logged in to create rides');
       }
-      rideData['createdAt'] = FieldValue.serverTimestamp();
-      debugPrint('Repository: Added timestamps, calling Firestore add...');
 
-      // Add timeout with better error handling
-      debugPrint('Repository: About to call _ridesCollection.add(rideData)...');
-      try {
-        final docRef = await _ridesCollection.add(rideData).timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            debugPrint('Repository: Operation timed out after 10 seconds');
-            debugPrint('Repository: This is a known Web SDK issue - operation likely succeeded');
-            debugPrint('Repository: Returning optimistic success');
-            // Return a placeholder ID since the operation likely succeeded
-            return _ridesCollection.doc('optimistic_success_${DateTime.now().millisecondsSinceEpoch}');
-          },
-        );
-        debugPrint('Repository: _ridesCollection.add() returned successfully');
-        debugPrint('Repository: Document created with ID: ${docRef.id}');
-        return docRef.id;
-      } catch (e) {
-        debugPrint('Repository: Caught specific error during add operation: $e');
-        debugPrint('Repository: Error type: ${e.runtimeType}');
+      final rideData = _mapRideToFirestore(ride);
+      rideData['createdBy'] = currentUserId;
+      rideData['createdAt'] = FieldValue.serverTimestamp();
+
+      debugPrint('Repository: About to write to Firestore...');
+      debugPrint('Repository: User ID: $currentUserId');
+      debugPrint('Repository: Ride data keys: ${rideData.keys.toList()}');
+
+      // REMOVE THE TIMEOUT - Let Firestore handle its own timeouts
+      final docRef = await _ridesCollection.add(rideData);
+
+      debugPrint(
+          'Repository: ✅ SUCCESS - Document created with ID: ${docRef.id}');
+
+      // Verify the document was actually written
+      final verification = await docRef.get();
+      if (!verification.exists) {
+        throw RideRepositoryException('Document was not found after creation');
+      }
+
+      debugPrint('Repository: ✅ VERIFIED - Document exists in Firestore');
+      return docRef.id;
+    } catch (e) {
+      debugPrint('Repository: ❌ FAILED to add ride: $e');
+      debugPrint('Repository: Error type: ${e.runtimeType}');
+
+      // Don't mask any errors - let them bubble up
+      if (e is RideRepositoryException) {
         rethrow;
       }
-    } catch (e) {
-      debugPrint('Repository: Error in addRide: $e');
       throw RideRepositoryException('Failed to add ride: $e');
     }
   }
@@ -183,7 +161,7 @@ class RideRepository {
       final rideData = _mapRideToFirestore(ride);
       rideData['updatedAt'] = FieldValue.serverTimestamp();
       rideData['updatedBy'] = currentUserId;
-      
+
       await _ridesCollection.doc(rideId).update(rideData);
     } catch (e) {
       throw RideRepositoryException('Failed to update ride: $e');
@@ -219,7 +197,7 @@ class RideRepository {
     try {
       final doc = await _ridesCollection.doc(rideId).get();
       if (!doc.exists) return null;
-      
+
       return _mapDocumentToRide(doc);
     } catch (e) {
       throw RideRepositoryException('Failed to fetch ride: $e');
@@ -234,16 +212,16 @@ class RideRepository {
       }
 
       final batch = FirebaseFirestore.instance.batch();
-      
+
       for (final ride in rides) {
         final docRef = _ridesCollection.doc();
         final rideData = _mapRideToFirestore(ride);
         rideData['createdBy'] = currentUserId;
         rideData['createdAt'] = FieldValue.serverTimestamp();
-        
+
         batch.set(docRef, rideData);
       }
-      
+
       await batch.commit();
       return null; // Success
     } catch (e) {
@@ -295,7 +273,8 @@ class RideRepository {
   Future<void> removeUserRating(String rideId) async {
     try {
       if (currentUserId == null) {
-        throw RideRepositoryException('User must be logged in to remove ratings');
+        throw RideRepositoryException(
+            'User must be logged in to remove ratings');
       }
 
       await _ridesCollection.doc(rideId).update({
@@ -331,7 +310,8 @@ class RideRepository {
   Future<void> removeVerification(String rideId) async {
     try {
       if (currentUserId == null) {
-        throw RideRepositoryException('User must be logged in to remove verification');
+        throw RideRepositoryException(
+            'User must be logged in to remove verification');
       }
 
       await _ridesCollection.doc(rideId).update({
@@ -410,8 +390,7 @@ class RideRepository {
       userRatings: data['userRatings'] != null
           ? Map<String, int>.from(data['userRatings'])
           : {},
-      rideWithGpsUrl: data['rideWithGpsUrl'],
-      stravaUrl: data['stravaUrl'],
+      routeUrl: data['routeUrl'],
       difficulty: data['difficulty'] != null
           ? RideDifficulty.values[data['difficulty']]
           : null,
@@ -450,25 +429,27 @@ class RideRepository {
       'averageRating': ride.averageRating,
       'totalRatings': ride.totalRatings ?? 0,
       'userRatings': ride.userRatings ?? {},
-      'rideWithGpsUrl': ride.rideWithGpsUrl,
-      'stravaUrl': ride.stravaUrl,
+      'routeUrl': ride.routeUrl,
       'difficulty': ride.difficulty?.index,
     };
   }
 
   // Helper method to calculate distance between two points (Haversine formula)
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  double _calculateDistance(
+      double lat1, double lon1, double lat2, double lon2) {
     const double earthRadius = 6371; // Earth radius in kilometers
-    
+
     double dLat = _degreesToRadians(lat2 - lat1);
     double dLon = _degreesToRadians(lon2 - lon1);
-    
+
     double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_degreesToRadians(lat1)) * math.cos(_degreesToRadians(lat2)) *
-        math.sin(dLon / 2) * math.sin(dLon / 2);
-    
+        math.cos(_degreesToRadians(lat1)) *
+            math.cos(_degreesToRadians(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+
     double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    
+
     return earthRadius * c;
   }
 

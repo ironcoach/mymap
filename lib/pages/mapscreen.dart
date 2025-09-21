@@ -9,6 +9,7 @@ import 'package:gap/gap.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:mymap/constants/constants.dart';
 import 'package:mymap/models/auto_complete_result.dart';
 import 'package:mymap/models/ride_data.dart';
@@ -34,7 +35,7 @@ import 'package:mymap/widgets/my_textfield.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   //const MapScreen({super.key});
-  const MapScreen({Key? key}) : super(key: key);
+  const MapScreen({super.key});
 
   @override
   MapScreenState createState() => MapScreenState();
@@ -201,11 +202,192 @@ class MapScreenState extends ConsumerState<MapScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Basic network connectivity check
+    // _checkNetworkConnectivity();
+
+    // Firestore connectivity and read/write test
+    _checkFirestoreConnectivity();
+
+    // Quick user verification
+    //_verifyUserAuthentication();
+
+    // Inspect local Firestore cache
+    //_inspectLocalCache();
+
     _determinePosition();
     _runDatabaseMigration();
-    // Note: Ride loading now handled by viewport loading in _onMapCreated()
+  }
 
-    //setState(() {});
+  Future<void> _checkFirestoreConnectivity() async {
+    debugPrint('=== FIRESTORE CONNECTIVITY TEST ===');
+
+    try {
+      // Test 1: Basic network
+      debugPrint('1. Testing basic internet connectivity...');
+      final response =
+          await http.get(Uri.parse('https://www.google.com')).timeout(
+                const Duration(seconds: 5),
+              );
+      debugPrint('✅ Basic internet: OK (${response.statusCode})');
+
+      // Test 2: Firebase Auth status
+      debugPrint('2. Checking Firebase Auth...');
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        debugPrint('✅ User authenticated: ${user.uid}');
+        debugPrint('User email: ${user.email}');
+        debugPrint(
+            'User provider: ${user.providerData.map((p) => p.providerId).join(', ')}');
+
+        // Try to refresh the auth token (with error handling)
+        try {
+          debugPrint('Attempting to refresh auth token...');
+          final token =
+              await user.getIdToken(true).timeout(const Duration(seconds: 10));
+          debugPrint('✅ Auth token refreshed successfully');
+        } catch (tokenError) {
+          debugPrint('❌ Auth token refresh failed: $tokenError');
+          debugPrint('This may indicate network issues or auth problems');
+
+          // Try to get existing token without refresh
+          try {
+            final existingToken = await user.getIdToken(false);
+            debugPrint('✅ Got existing auth token (not refreshed)');
+          } catch (e) {
+            debugPrint('❌ Cannot get any auth token: $e');
+          }
+        }
+      } else {
+        debugPrint('❌ No authenticated user');
+        return; // Skip Firestore tests if no user
+      }
+
+      // Test 3: Firestore settings
+      debugPrint('3. Checking Firestore settings...');
+      final settings = FirebaseFirestore.instance.settings;
+      debugPrint('Persistence enabled: ${settings.persistenceEnabled}');
+
+      // Test 4: Simple Firestore read with detailed error handling
+      debugPrint('4. Testing Firestore read access...');
+      try {
+        final testDoc = await FirebaseFirestore.instance
+            .collection('rides')
+            .limit(1)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        debugPrint('✅ Firestore read: SUCCESS (${testDoc.docs.length} docs)');
+
+        // Test 5: Simple Firestore write
+        debugPrint('5. Testing Firestore write access...');
+        final testRef = FirebaseFirestore.instance
+            .collection('test_connectivity')
+            .doc('test_${DateTime.now().millisecondsSinceEpoch}');
+
+        await testRef.set({
+          'test': true,
+          'timestamp': FieldValue.serverTimestamp(),
+          'user': user.uid,
+          'created': DateTime.now().toIso8601String(),
+        }).timeout(const Duration(seconds: 15));
+
+        debugPrint('✅ Firestore write: SUCCESS');
+
+        // Verify the write
+        final verification =
+            await testRef.get(const GetOptions(source: Source.server));
+        if (verification.exists) {
+          debugPrint('✅ Write verification: SUCCESS');
+        } else {
+          debugPrint('❌ Write verification: FAILED - document not found');
+        }
+
+        // Clean up test document
+        await testRef.delete();
+        debugPrint('✅ Test cleanup: SUCCESS');
+      } catch (firestoreError) {
+        debugPrint('❌ Firestore test FAILED: $firestoreError');
+
+        if (firestoreError.toString().contains('unavailable')) {
+          debugPrint(
+              '🔧 Firestore service is unavailable - this is the root cause');
+        } else if (firestoreError.toString().contains('permission-denied')) {
+          debugPrint('🔧 Permission denied - check Firestore security rules');
+        } else if (firestoreError.toString().contains('unauthenticated')) {
+          debugPrint('🔧 Authentication problem detected');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ General connectivity test FAILED: $e');
+    }
+
+    debugPrint('=== END FIRESTORE CONNECTIVITY TEST ===');
+  }
+
+// Add this method to MapScreen
+  Future<void> _inspectLocalCache() async {
+    try {
+      debugPrint('=== INSPECTING LOCAL FIRESTORE CACHE ===');
+
+      // Check what's in local cache vs server
+      final localQuery = await FirebaseFirestore.instance
+          .collection('rides')
+          .get(const GetOptions(source: Source.cache));
+
+      final serverQuery = await FirebaseFirestore.instance
+          .collection('rides')
+          .get(const GetOptions(source: Source.server));
+
+      debugPrint('Documents in LOCAL cache: ${localQuery.docs.length}');
+      debugPrint('Documents on SERVER: ${serverQuery.docs.length}');
+
+      // Show details of cached documents
+      for (var doc in localQuery.docs) {
+        final data = doc.data();
+        debugPrint(
+            'Cached doc: ${doc.id} - ${data['title']} - ${doc.metadata.hasPendingWrites ? "PENDING WRITE" : "SYNCED"}');
+      }
+
+      for (var doc in serverQuery.docs) {
+        final data = doc.data();
+        debugPrint('Server doc: ${doc.id} - ${data['title']}');
+      }
+    } catch (e) {
+      debugPrint('Cache inspection error: $e');
+    }
+  }
+
+  void _checkNetworkConnectivity() async {
+    try {
+      debugPrint('Testing basic network connectivity...');
+
+      // Simple HTTP request to test internet
+      final response =
+          await http.get(Uri.parse('https://www.google.com')).timeout(
+                const Duration(seconds: 5),
+              );
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ Network connectivity: OK');
+      } else {
+        debugPrint('❌ Network issue: Status ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Network connectivity failed: $e');
+    }
+  }
+
+  void _verifyUserAuthentication() {
+    final user = FirebaseAuth.instance.currentUser;
+
+    debugPrint('=== USER CHECK ===');
+    if (user == null) {
+      debugPrint('❌ NO USER LOGGED IN - Ride creation will fail');
+    } else {
+      debugPrint('✅ User logged in: ${user.uid} (${user.email})');
+      debugPrint('Anonymous: ${user.isAnonymous}');
+    }
+    debugPrint('=== END USER CHECK ===');
   }
 
   /// Runs the database migration to convert GeoPoint to separate lat/lng fields
@@ -450,15 +632,11 @@ class MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  /// Load rides within the current map viewport
+  /// Load rides within the current map viewport - FORCE SERVER READ
   Future<void> _loadRidesInViewport() async {
     debugPrint('=== _loadRidesInViewport started ===');
 
     final GoogleMapController controller = await mapController.future;
-    if (controller == null) {
-      debugPrint('Map controller not ready, skipping viewport load');
-      return;
-    }
 
     try {
       // Get current map bounds
@@ -497,48 +675,70 @@ class MapScreenState extends ConsumerState<MapScreen> {
             'assets/mapicons/blueRide.png'),
       };
 
-      // Get rides in viewport using repository
+      // Get rides in viewport using repository WITH FORCED SERVER READ
       final repository = RideRepository();
-      final rides = await repository.getRidesInViewport(
-        northLat: bounds.northeast.latitude,
-        southLat: bounds.southwest.latitude,
-        eastLng: bounds.northeast.longitude,
-        westLng: bounds.southwest.longitude,
-      );
+      List<Ride> rides;
 
-      debugPrint('Found ${rides.length} rides in viewport');
+      try {
+        debugPrint('Attempting to load rides from SERVER...');
+        rides = await repository.getRidesInViewport(
+          northLat: bounds.northeast.latitude,
+          southLat: bounds.southwest.latitude,
+          eastLng: bounds.northeast.longitude,
+          westLng: bounds.southwest.longitude,
+        );
+        debugPrint('✅ Loaded ${rides.length} rides from SERVER');
+      } catch (e) {
+        debugPrint('❌ Failed to load from server: $e');
+        debugPrint('This suggests network issues or server problems');
 
-      // Debug: If no rides in viewport, check total rides in database
+        // Show user that we're using potentially stale data
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Using cached data - check internet connection'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+
+        rides = []; // Don't show cached data that might be stale
+        return;
+      }
+
+      // Debug: If no rides in viewport, check what's actually in the database
       if (rides.isEmpty) {
         debugPrint(
             '=== DEBUG: No rides in viewport, checking total rides in database ===');
         try {
-          final querySnapshot =
-              await FirebaseFirestore.instance.collection('rides').get();
-          debugPrint('Total rides in database: ${querySnapshot.docs.length}');
+          final querySnapshot = await FirebaseFirestore.instance
+              .collection('rides')
+              .get(
+                  const GetOptions(source: Source.server)); // Force server read
+          debugPrint(
+              'Total rides in database (SERVER): ${querySnapshot.docs.length}');
 
           if (querySnapshot.docs.isNotEmpty) {
-            debugPrint('Sample ride locations and data structure:');
+            debugPrint('Sample ride locations from SERVER:');
             for (var doc in querySnapshot.docs.take(3)) {
               final data = doc.data();
               debugPrint('  - Doc ID: ${doc.id}');
               debugPrint('  - Title: ${data['title']}');
               debugPrint(
-                  '  - latlng field type: ${data['latlng'].runtimeType}');
-              debugPrint('  - latlng value: ${data['latlng']}');
+                  '  - Has pending writes: ${doc.metadata.hasPendingWrites}');
+              debugPrint('  - From cache: ${doc.metadata.isFromCache}');
 
               final latlng = data['latlng'] as GeoPoint?;
               if (latlng != null) {
                 debugPrint(
-                    '  - Parsed: ${latlng.latitude}, ${latlng.longitude}');
-              } else {
-                debugPrint('  - Failed to parse as GeoPoint');
+                    '  - Location: ${latlng.latitude}, ${latlng.longitude}');
               }
               debugPrint('---');
             }
           }
         } catch (e) {
-          debugPrint('Error checking total rides: $e');
+          debugPrint('Error checking total rides from server: $e');
         }
         debugPrint('=== END DEBUG ===');
       }
@@ -547,37 +747,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
       for (var ride in rides) {
         if (ride.latlng == null) continue;
 
-        // Store ride data for quick access (convert back to map format)
-        final data = {
-          'id': ride.id,
-          'title': ride.title,
-          'desc': ride.desc,
-          'snippet': ride.snippet,
-          'dow': ride.dow?.index,
-          'startTime': ride.startTime,
-          'startPointDesc': ride.startPointDesc,
-          'contactName': ride.contact,
-          'contactPhone': ride.phone,
-          'latlng': GeoPoint(ride.latlng!.latitude, ride.latlng!.longitude),
-          'verified': ride.verified,
-          'verifiedBy': ride.verifiedBy,
-          'rideType': ride.rideType?.index,
-          'distance': ride.rideDistance,
-          'createdBy': ride.createdBy,
-          'verifiedByUsers': ride.verifiedByUsers,
-          'verificationCount': ride.verificationCount,
-          'averageRating': ride.averageRating,
-          'totalRatings': ride.totalRatings,
-          'userRatings': ride.userRatings,
-          'rideWithGpsUrl': ride.rideWithGpsUrl,
-          'stravaUrl': ride.stravaUrl,
-          'difficulty': ride.difficulty?.index,
-        };
-
-        // Caching disabled to avoid data inconsistency issues
         final docId = ride.id ?? 'unknown_${rides.indexOf(ride)}';
-        // _ridesData[docId] = data;
-
         final type = ride.rideType ?? RideType.roadRide;
         final markerIcon = _cachedMarkers![type]!;
 
@@ -587,7 +757,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
           infoWindow: InfoWindow(
             onTap: () {
               rideID = docId;
-              // setRideDetailsFromCache(docId); // No longer using cache
               if (mounted) {
                 showDetails();
                 setState(() {});
@@ -620,8 +789,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
       }
     }
   }
-
-// Sample data method removed - using existing database with 42 rides
 
   void newRideDialog(LatLng latlng, bool isEdit) {
     showDialog(
@@ -682,39 +849,24 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> _handleRideSave(Ride ride, bool isEdit) async {
     debugPrint('=== _handleRideSave called ===');
-    debugPrint('Ride title: ${ride.title}');
-    debugPrint('Is edit: $isEdit');
-    debugPrint('User auth status: ${FirebaseAuth.instance.currentUser?.uid}');
 
     final repository = RideRepository();
     try {
-      debugPrint('About to save ride to repository...');
-
       if (isEdit) {
         debugPrint('Updating existing ride...');
         await repository.updateRide(rideID, ride);
-        debugPrint('Ride updated successfully');
       } else {
         debugPrint('Adding new ride...');
         final rideId = await repository.addRide(ride);
-        debugPrint('Ride created with ID: $rideId');
+        debugPrint('✅ Ride created with ID: $rideId');
       }
 
-      debugPrint('Repository operation completed successfully');
+      if (!mounted) return;
 
-      if (!mounted) {
-        debugPrint('Widget not mounted, skipping UI updates');
-        return;
-      }
-
-      debugPrint('About to refresh map data...');
-
-      // Refresh the map data (dialog closes itself)
+      // ONLY refresh map data after confirmed success
+      debugPrint('Refreshing map data after successful save...');
       _loadRidesInViewport();
 
-      debugPrint('Map data refresh initiated');
-
-      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isEdit
@@ -723,43 +875,20 @@ class MapScreenState extends ConsumerState<MapScreen> {
           backgroundColor: Colors.green,
         ),
       );
-
-      debugPrint('Success message shown, _handleRideSave completing');
     } catch (e) {
-      debugPrint('=== ERROR in _handleRideSave ===');
-      debugPrint('Error details: $e');
-      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('❌ REAL ERROR in _handleRideSave: $e');
 
       if (!mounted) return;
 
-      // Check if this is a timeout error (which means operation likely succeeded)
-      if (e.toString().contains('timed out') ||
-          e.toString().contains('TimeoutException')) {
-        debugPrint('Treating timeout as soft success - refreshing data');
-
-        // Refresh map data since operation likely succeeded
-        _loadRidesInViewport();
-
-        // Show optimistic success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isEdit
-                ? 'Ride updated (please verify)'
-                : 'Ride created (please verify)'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      } else {
-        // Show actual error message for real failures
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save ride: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      // Show actual error - DON'T refresh map on failure
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Failed to save ride: ${e.toString().replaceAll('RideRepositoryException: ', '')}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
@@ -1088,8 +1217,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
         userRatings: data['userRatings'] != null
             ? Map<String, int>.from(data['userRatings'])
             : {},
-        rideWithGpsUrl: data['rideWithGpsUrl'],
-        stravaUrl: data['stravaUrl'],
+        routeUrl: data['routeUrl'],
         difficulty: data['difficulty'] != null
             ? RideDifficulty.values[data['difficulty']]
             : null,

@@ -230,7 +230,7 @@ class ExternalRouteLinks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!ride.hasExternalRoutes) {
+    if (!ride.hasExternalRoute) {
       return const SizedBox.shrink();
     }
 
@@ -238,34 +238,18 @@ class ExternalRouteLinks extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'External Routes',
+          'Route Link',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            if (ride.rideWithGpsUrl?.isNotEmpty == true)
-              _buildRouteButton(
-                context,
-                'RideWithGPS',
-                Icons.route,
-                ride.rideWithGpsUrl!,
-                Colors.blue,
-              ),
-            if (ride.rideWithGpsUrl?.isNotEmpty == true &&
-                ride.stravaUrl?.isNotEmpty == true)
-              const SizedBox(width: 12),
-            if (ride.stravaUrl?.isNotEmpty == true)
-              _buildRouteButton(
-                context,
-                'Strava',
-                Icons.timeline,
-                ride.stravaUrl!,
-                Colors.orange,
-              ),
-          ],
+        _buildRouteButton(
+          context,
+          'View Route',
+          Icons.route,
+          ride.routeUrl!,
+          Colors.blue,
         ),
       ],
     );
@@ -373,7 +357,7 @@ class RideQualityIndicators extends StatelessWidget {
         ),
 
         // External routes
-        if (ride.hasExternalRoutes) ...[
+        if (ride.hasExternalRoute) ...[
           const SizedBox(height: 12),
           ExternalRouteLinks(ride: ride),
         ],

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:mymap/models/ride_data.dart';
 import 'package:mymap/widgets/ride_widgets.dart';
 import 'package:mymap/repositories/ride_repository.dart';
 
 /// Dialog for displaying ride information with quality indicators and actions
-class RideInfoDialog extends ConsumerWidget {
+class RideInfoDialog extends ConsumerStatefulWidget {
   final Ride ride;
   final String rideId;
   final VoidCallback? onEdit;
@@ -21,7 +22,24 @@ class RideInfoDialog extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RideInfoDialog> createState() => _RideInfoDialogState();
+}
+
+class _RideInfoDialogState extends ConsumerState<RideInfoDialog> {
+  late int _currentUserRating;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with current user rating from the ride
+    final currentUser = FirebaseAuth.instance.currentUser;
+    _currentUserRating = currentUser != null
+        ? (widget.ride.userRatings?[currentUser.uid] ?? 0)
+        : 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDesktop = MediaQuery.of(context).size.width > 1200;
 
@@ -47,18 +65,18 @@ class RideInfoDialog extends ConsumerWidget {
                     const SizedBox(height: 24),
                     _buildRatingAndDifficulty(context, theme),
                     const SizedBox(height: 24),
-                    _buildUserRatingSection(context, theme, ref),
+                    _buildUserRatingSection(context, theme),
                     const SizedBox(height: 24),
-                    RideQualityIndicators(
-                      ride: ride,
-                      rideId: rideId,
-                      compact: false,
-                    ),
+                    _buildVerificationSection(context, theme),
                     const SizedBox(height: 24),
                     _buildScheduleInfo(context, theme),
                     const SizedBox(height: 24),
                     _buildLocationInfo(context, theme),
-                    if (ride.contact?.isNotEmpty == true) ...[
+                    if (widget.ride.routeUrl?.isNotEmpty == true) ...[
+                      const SizedBox(height: 24),
+                      _buildRouteUrlSection(context, theme),
+                    ],
+                    if (widget.ride.contact?.isNotEmpty == true) ...[
                       const SizedBox(height: 24),
                       _buildContactInfo(context, theme),
                     ],
@@ -83,7 +101,7 @@ class RideInfoDialog extends ConsumerWidget {
       child: Row(
         children: [
           Icon(
-            _getRideTypeIcon(ride.rideType ?? RideType.roadRide),
+            _getRideTypeIcon(widget.ride.rideType ?? RideType.roadRide),
             color: theme.colorScheme.primary,
             size: 32,
           ),
@@ -93,15 +111,15 @@ class RideInfoDialog extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ride.title ?? 'Untitled Ride',
+                  widget.ride.title ?? 'Untitled Ride',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                if (ride.rideType != null)
+                if (widget.ride.rideType != null)
                   Text(
-                    ride.rideType!.titleName,
+                    widget.ride.rideType!.titleName,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.primary,
                       fontWeight: FontWeight.w500,
@@ -124,7 +142,7 @@ class RideInfoDialog extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (ride.desc?.isNotEmpty == true) ...[
+        if (widget.ride.desc?.isNotEmpty == true) ...[
           Text(
             'Description',
             style: theme.textTheme.titleMedium?.copyWith(
@@ -133,12 +151,12 @@ class RideInfoDialog extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            ride.desc!,
+            widget.ride.desc!,
             style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
         ],
-        if (ride.snippet?.isNotEmpty == true) ...[
+        if (widget.ride.snippet?.isNotEmpty == true) ...[
           Text(
             'Quick Info',
             style: theme.textTheme.titleMedium?.copyWith(
@@ -149,14 +167,15 @@ class RideInfoDialog extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: theme.colorScheme.outline.withValues(alpha: 0.2),
               ),
             ),
             child: Text(
-              ride.snippet!,
+              widget.ride.snippet!,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontStyle: FontStyle.italic,
               ),
@@ -168,8 +187,9 @@ class RideInfoDialog extends ConsumerWidget {
   }
 
   Widget _buildRatingAndDifficulty(BuildContext context, ThemeData theme) {
-    if ((ride.averageRating == null || ride.averageRating! <= 0) &&
-        ride.difficulty == null) {
+    if ((widget.ride.averageRating == null ||
+            widget.ride.averageRating! <= 0) &&
+        widget.ride.difficulty == null) {
       return const SizedBox.shrink();
     }
 
@@ -205,27 +225,28 @@ class RideInfoDialog extends ConsumerWidget {
           const SizedBox(height: 12),
 
           // Rating display
-          if (ride.averageRating != null && ride.averageRating! > 0) ...[
+          if (widget.ride.averageRating != null &&
+              widget.ride.averageRating! > 0) ...[
             Row(
               children: [
                 StarRating(
-                  rating: ride.averageRating!,
+                  rating: widget.ride.averageRating!,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  ride.ratingDisplayText,
+                  widget.ride.ratingDisplayText,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
-            if (ride.difficulty != null) const SizedBox(height: 8),
+            if (widget.ride.difficulty != null) const SizedBox(height: 8),
           ],
 
           // Difficulty display
-          if (ride.difficulty != null) ...[
+          if (widget.ride.difficulty != null) ...[
             Row(
               children: [
                 Icon(
@@ -235,7 +256,7 @@ class RideInfoDialog extends ConsumerWidget {
                 ),
                 const SizedBox(width: 8),
                 DifficultyChip(
-                  difficulty: ride.difficulty!,
+                  difficulty: widget.ride.difficulty!,
                   showDescription: true,
                 ),
               ],
@@ -246,11 +267,8 @@ class RideInfoDialog extends ConsumerWidget {
     );
   }
 
-  Widget _buildUserRatingSection(BuildContext context, ThemeData theme, WidgetRef ref) {
+  Widget _buildUserRatingSection(BuildContext context, ThemeData theme) {
     final currentUser = FirebaseAuth.instance.currentUser;
-    final currentUserRating = currentUser != null
-        ? (ride.userRatings?[currentUser.uid] ?? 0)
-        : 0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -285,28 +303,31 @@ class RideInfoDialog extends ConsumerWidget {
           Text(
             currentUser == null
                 ? 'Log in to rate this ride'
-                : currentUserRating > 0
-                    ? 'Your rating: $currentUserRating star${currentUserRating == 1 ? '' : 's'}'
+                : _currentUserRating > 0
+                    ? 'Your rating: $_currentUserRating star${_currentUserRating == 1 ? '' : 's'}'
                     : 'Tap to rate this ride',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 12),
+          // Stars row
           Row(
             children: [
               ...List.generate(5, (index) {
                 return GestureDetector(
                   onTap: currentUser != null
-                      ? () => _handleUserRating(context, ref, index + 1, currentUserRating)
-                      : () => _handleUserRating(context, ref, index + 1, currentUserRating),
+                      ? () => _handleUserRating(context, index + 1)
+                      : null,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 2),
                     child: Icon(
-                      currentUserRating > index ? Icons.star : Icons.star_border,
+                      _currentUserRating > index
+                          ? Icons.star
+                          : Icons.star_border,
                       color: currentUser == null
                           ? Colors.grey.withValues(alpha: 0.5)
-                          : currentUserRating > index
+                          : _currentUserRating > index
                               ? Colors.amber
                               : Colors.grey,
                       size: 32,
@@ -314,22 +335,27 @@ class RideInfoDialog extends ConsumerWidget {
                   ),
                 );
               }),
-              const SizedBox(width: 16),
-              if (currentUser != null && currentUserRating > 0)
-                TextButton(
-                  onPressed: () => _handleUserRating(context, ref, 0, currentUserRating),
-                  child: Text(
-                    'Remove Rating',
-                    style: TextStyle(
-                      color: theme.colorScheme.error,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
             ],
           ),
-          if (currentUser != null && currentUserRating > 0) ...[
+          // Remove rating button on separate row to prevent overflow
+          if (currentUser != null && _currentUserRating > 0) ...[
             const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => _handleUserRating(context, 0),
+                child: Text(
+                  'Remove Rating',
+                  style: TextStyle(
+                    color: theme.colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (currentUser != null && _currentUserRating > 0) ...[
+            const SizedBox(height: 4),
             Text(
               'Tap a star to change your rating',
               style: theme.textTheme.bodySmall?.copyWith(
@@ -352,7 +378,7 @@ class RideInfoDialog extends ConsumerWidget {
     );
   }
 
-  Future<void> _handleUserRating(BuildContext context, WidgetRef ref, int newRating, int currentRating) async {
+  Future<void> _handleUserRating(BuildContext context, int newRating) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -364,18 +390,23 @@ class RideInfoDialog extends ConsumerWidget {
       return;
     }
 
-    if (newRating == currentRating) {
+    if (newRating == _currentUserRating) {
       // User tapped the same rating, do nothing
       return;
     }
+
+    // Update UI immediately for better user experience
+    setState(() {
+      _currentUserRating = newRating;
+    });
 
     try {
       final repository = RideRepository();
 
       if (newRating == 0) {
-        await repository.removeUserRating(rideId);
+        await repository.removeUserRating(widget.rideId);
       } else {
-        await repository.rateRide(rideId, newRating);
+        await repository.rateRide(widget.rideId, newRating);
       }
 
       if (context.mounted) {
@@ -392,6 +423,12 @@ class RideInfoDialog extends ConsumerWidget {
         );
       }
     } catch (e) {
+      // Revert UI change on error
+      setState(() {
+        final originalRating = (widget.ride.userRatings?[currentUser.uid] ?? 0);
+        _currentUserRating = originalRating;
+      });
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -404,6 +441,153 @@ class RideInfoDialog extends ConsumerWidget {
     }
   }
 
+  Widget _buildVerificationSection(BuildContext context, ThemeData theme) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isUserVerified = currentUser != null &&
+        (widget.ride.verifiedByUsers?.contains(currentUser.uid) ?? false);
+    final verificationCount = widget.ride.verificationCount ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                verificationCount >= 3 ? Icons.verified : Icons.warning,
+                color: verificationCount >= 3 ? Colors.green : Colors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Ride Verification',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: verificationCount >= 3 ? Colors.green : Colors.orange,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: verificationCount >= 3
+                      ? Colors.green.withValues(alpha: 0.1)
+                      : Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  verificationCount >= 3 ? 'VERIFIED' : 'UNVERIFIED',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: verificationCount >= 3 ? Colors.green : Colors.orange,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            verificationCount >= 3
+                ? 'This ride has been verified by $verificationCount users'
+                : verificationCount > 0
+                    ? 'This ride has $verificationCount verification${verificationCount == 1 ? '' : 's'} (needs 3 to be verified)'
+                    : 'This ride has not been verified yet',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (currentUser != null) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => _handleVerification(context),
+                icon: Icon(isUserVerified ? Icons.verified : Icons.how_to_reg),
+                label: Text(isUserVerified ? 'Remove Verification' : 'Verify This Ride'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: isUserVerified
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.primary,
+                  foregroundColor: isUserVerified
+                      ? theme.colorScheme.onError
+                      : theme.colorScheme.onPrimary,
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(
+              'Log in to verify this ride',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleVerification(BuildContext context) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please log in to verify rides'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final repository = RideRepository();
+      final isCurrentlyVerified = widget.ride.verifiedByUsers?.contains(currentUser.uid) ?? false;
+
+      if (isCurrentlyVerified) {
+        await repository.removeVerification(widget.rideId);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Verification removed'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        await repository.verifyRide(widget.rideId);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ride verified successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update verification: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
 
   Widget _buildScheduleInfo(BuildContext context, ThemeData theme) {
     return Container(
@@ -439,21 +623,21 @@ class RideInfoDialog extends ConsumerWidget {
           _buildInfoRow(
             context,
             'Day of Week',
-            ride.dow?.titleName ?? 'Not specified',
+            widget.ride.dow?.titleName ?? 'Not specified',
             Icons.calendar_today,
           ),
-          if (ride.startTime != null)
+          if (widget.ride.startTime != null)
             _buildInfoRow(
               context,
               'Start Time',
-              TimeOfDay.fromDateTime(ride.startTime!).format(context),
+              TimeOfDay.fromDateTime(widget.ride.startTime!).format(context),
               Icons.access_time,
             ),
-          if (ride.rideDistance != null && ride.rideDistance! > 0)
+          if (widget.ride.rideDistance != null && widget.ride.rideDistance! > 0)
             _buildInfoRow(
               context,
               'Distance',
-              '${ride.rideDistance} miles',
+              '${widget.ride.rideDistance} miles',
               Icons.straighten,
             ),
         ],
@@ -492,18 +676,18 @@ class RideInfoDialog extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (ride.startPointDesc?.isNotEmpty == true)
+          if (widget.ride.startPointDesc?.isNotEmpty == true)
             _buildInfoRow(
               context,
               'Starting Point',
-              ride.startPointDesc!,
+              widget.ride.startPointDesc!,
               Icons.play_arrow,
             ),
-          if (ride.latlng != null) ...[
+          if (widget.ride.latlng != null) ...[
             _buildInfoRow(
               context,
               'Coordinates',
-              '${ride.latlng!.latitude.toStringAsFixed(6)}, ${ride.latlng!.longitude.toStringAsFixed(6)}',
+              '${widget.ride.latlng!.latitude.toStringAsFixed(6)}, ${widget.ride.latlng!.longitude.toStringAsFixed(6)}',
               Icons.gps_fixed,
             ),
           ],
@@ -546,14 +730,14 @@ class RideInfoDialog extends ConsumerWidget {
           _buildInfoRow(
             context,
             'Contact',
-            ride.contact!,
+            widget.ride.contact!,
             Icons.person,
           ),
-          if (ride.phone?.isNotEmpty == true)
+          if (widget.ride.phone?.isNotEmpty == true)
             _buildInfoRow(
               context,
               'Phone',
-              ride.phone!,
+              widget.ride.phone!,
               Icons.phone,
             ),
         ],
@@ -561,7 +745,85 @@ class RideInfoDialog extends ConsumerWidget {
     );
   }
 
-  Widget _buildInfoRow(BuildContext context, String label, String value, IconData icon) {
+  Widget _buildRouteUrlSection(BuildContext context, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.link,
+                color: theme.colorScheme.primary,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Route Link',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _launchRouteUrl(widget.ride.routeUrl!),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('View Route'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            widget.ride.routeUrl!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchRouteUrl(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'Could not launch $url';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to open link: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildInfoRow(
+      BuildContext context, String label, String value, IconData icon) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -623,14 +885,14 @@ class RideInfoDialog extends ConsumerWidget {
               ),
             ),
           ),
-          if (onEdit != null || onDelete != null) ...[
+          if (widget.onEdit != null || widget.onDelete != null) ...[
             const SizedBox(width: 12),
-            if (onEdit != null)
+            if (widget.onEdit != null)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.of(context).pop();
-                    onEdit?.call();
+                    widget.onEdit?.call();
                   },
                   icon: const Icon(Icons.edit, size: 18),
                   label: const Text('Edit'),
@@ -639,12 +901,12 @@ class RideInfoDialog extends ConsumerWidget {
                   ),
                 ),
               ),
-            if (onDelete != null) ...[
+            if (widget.onDelete != null) ...[
               const SizedBox(width: 12),
               IconButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  _showDeleteConfirmation(context, onDelete!);
+                  _showDeleteConfirmation(context, widget.onDelete!);
                 },
                 icon: Icon(
                   Icons.delete,
@@ -665,7 +927,8 @@ class RideInfoDialog extends ConsumerWidget {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Delete Ride'),
-          content: Text('Are you sure you want to delete "${ride.title}"?'),
+          content:
+              Text('Are you sure you want to delete "${widget.ride.title}"?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),

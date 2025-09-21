@@ -30,14 +30,14 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
     with TickerProviderStateMixin {
   late PageController _pageController;
   late TabController _tabController;
-  
+
   int _currentStep = 0;
   final int _totalSteps = 3;
   bool _isLoading = false;
-  
+
   // Form key for validation
   final _formKey = GlobalKey<FormState>();
-  
+
   // Controllers
   late TextEditingController titleController;
   late TextEditingController descController;
@@ -85,13 +85,13 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
       contactController.text = ride.contact ?? '';
       phoneController.text = ride.phone ?? '';
       distanceController.text = ride.rideDistance?.toString() ?? '0';
-      externalRouteController.text = ride.rideWithGpsUrl ?? ride.stravaUrl ?? '';
+      externalRouteController.text = ride.routeUrl ?? '';
       selectedRideType = ride.rideType ?? RideType.roadRide;
       selectedDifficulty = ride.difficulty ?? RideDifficulty.moderate;
       selectedDow = ride.dow ?? DayOfWeekType.monday;
       selectedTime = ride.startTime != null
-        ? TimeOfDay.fromDateTime(ride.startTime!)
-        : TimeOfDay.now();
+          ? TimeOfDay.fromDateTime(ride.startTime!)
+          : TimeOfDay.now();
     }
   }
 
@@ -113,8 +113,9 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
   // Responsive breakpoints
   bool get isWeb => kIsWeb;
   bool get isDesktop => MediaQuery.of(context).size.width > 1200;
-  bool get isTablet => MediaQuery.of(context).size.width > 600 && 
-                      MediaQuery.of(context).size.width <= 1200;
+  bool get isTablet =>
+      MediaQuery.of(context).size.width > 600 &&
+      MediaQuery.of(context).size.width <= 1200;
   bool get isMobile => MediaQuery.of(context).size.width <= 600;
 
   double get dialogWidth {
@@ -181,32 +182,34 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
     if (widget.isEdit && widget.existingRide != null) {
       final ride = widget.existingRide!;
       return titleController.text.trim() != (ride.title ?? '') ||
-             descController.text.trim() != (ride.desc ?? '') ||
-             snippetController.text.trim() != (ride.snippet ?? '') ||
-             startPointController.text.trim() != (ride.startPointDesc ?? '') ||
-             contactController.text.trim() != (ride.contact ?? '') ||
-             phoneController.text.trim() != (ride.phone ?? '') ||
-             distanceController.text.trim() != (ride.rideDistance?.toString() ?? '0') ||
-             externalRouteController.text.trim() != (ride.rideWithGpsUrl ?? ride.stravaUrl ?? '') ||
-             selectedRideType != (ride.rideType ?? RideType.roadRide) ||
-             selectedDifficulty != (ride.difficulty ?? RideDifficulty.moderate) ||
-             selectedDow != (ride.dow ?? DayOfWeekType.monday);
+          descController.text.trim() != (ride.desc ?? '') ||
+          snippetController.text.trim() != (ride.snippet ?? '') ||
+          startPointController.text.trim() != (ride.startPointDesc ?? '') ||
+          contactController.text.trim() != (ride.contact ?? '') ||
+          phoneController.text.trim() != (ride.phone ?? '') ||
+          distanceController.text.trim() !=
+              (ride.rideDistance?.toString() ?? '0') ||
+          externalRouteController.text.trim() != (ride.routeUrl ?? '') ||
+          selectedRideType != (ride.rideType ?? RideType.roadRide) ||
+          selectedDifficulty != (ride.difficulty ?? RideDifficulty.moderate) ||
+          selectedDow != (ride.dow ?? DayOfWeekType.monday);
     } else {
       // For new rides, check if any field has content
       return titleController.text.trim().isNotEmpty ||
-             descController.text.trim().isNotEmpty ||
-             snippetController.text.trim().isNotEmpty ||
-             startPointController.text.trim().isNotEmpty ||
-             contactController.text.trim().isNotEmpty ||
-             phoneController.text.trim().isNotEmpty ||
-             externalRouteController.text.trim().isNotEmpty ||
-             (distanceController.text.trim() != '0' && distanceController.text.trim().isNotEmpty);
+          descController.text.trim().isNotEmpty ||
+          snippetController.text.trim().isNotEmpty ||
+          startPointController.text.trim().isNotEmpty ||
+          contactController.text.trim().isNotEmpty ||
+          phoneController.text.trim().isNotEmpty ||
+          externalRouteController.text.trim().isNotEmpty ||
+          (distanceController.text.trim() != '0' &&
+              distanceController.text.trim().isNotEmpty);
     }
   }
 
   Future<void> _handleCancel() async {
     debugPrint('Dialog cancel requested');
-    
+
     if (_hasUnsavedChanges()) {
       debugPrint('Unsaved changes detected, showing confirmation');
       final shouldClose = await _showCancelConfirmation();
@@ -229,8 +232,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
         return AlertDialog(
           title: const Text('Discard Changes?'),
           content: const Text(
-            'You have unsaved changes. Are you sure you want to close this dialog?'
-          ),
+              'You have unsaved changes. Are you sure you want to close this dialog?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -261,13 +263,12 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
 
   Future<void> _handleSave() async {
     debugPrint('=== ResponsiveRideDialog._handleSave called ===');
-    
+
     if (!_validateCurrentStep()) {
       debugPrint('Validation failed, not proceeding with save');
       return;
     }
-    
-    debugPrint('Validation passed, setting loading state');
+
     setState(() {
       _isLoading = true;
     });
@@ -288,26 +289,26 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
         rideType: selectedRideType,
         rideDistance: int.tryParse(distanceController.text.trim()) ?? 0,
         difficulty: selectedDifficulty,
-        rideWithGpsUrl: externalRouteController.text.trim().isEmpty ? null : externalRouteController.text.trim(),
+        routeUrl: externalRouteController.text.trim().isEmpty
+            ? null
+            : externalRouteController.text.trim(),
       );
-      
+
       debugPrint('Created ride object: ${ride.title}');
-      debugPrint('Calling widget.onSave callback...');
 
-      // Call the save callback and await it
+      // Call the save callback and await it - NO TIMEOUT HANDLING
       await widget.onSave(ride, widget.isEdit);
-      debugPrint('widget.onSave callback completed');
+      debugPrint('widget.onSave callback completed successfully');
 
-      // Close the dialog after saving
+      // Only close dialog if save actually succeeded
       if (mounted && Navigator.canPop(context)) {
-        debugPrint('Dialog closing itself...');
+        debugPrint('Dialog closing after successful save');
         Navigator.of(context).pop();
       }
-      
     } catch (e) {
-      debugPrint('Error in dialog _handleSave: $e');
+      debugPrint('❌ REAL ERROR in dialog _handleSave: $e');
 
-      // Show error to user and don't close dialog
+      // Show actual error to user and keep dialog open
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -319,7 +320,6 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
       }
     } finally {
       if (mounted) {
-        debugPrint('Resetting loading state');
         setState(() {
           _isLoading = false;
         });
@@ -330,7 +330,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false, // Always intercept dismissal attempts to check for unsaved changes
+      canPop:
+          false, // Always intercept dismissal attempts to check for unsaved changes
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop && mounted) {
           // Handle all dismissal attempts (back button, barrier tap, etc.)
@@ -353,23 +354,23 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
       child: Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
-        width: dialogWidth,
-        height: dialogHeight,
-        constraints: const BoxConstraints(
-          minWidth: 300,
-          maxWidth: 600,
-          minHeight: 400,
-          maxHeight: 800,
+          width: dialogWidth,
+          height: dialogHeight,
+          constraints: const BoxConstraints(
+            minWidth: 300,
+            maxWidth: 600,
+            minHeight: 400,
+            maxHeight: 800,
+          ),
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildProgressIndicator(),
+              Expanded(child: _buildContent()),
+              _buildNavigationButtons(),
+            ],
+          ),
         ),
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildProgressIndicator(),
-            Expanded(child: _buildContent()),
-            _buildNavigationButtons(),
-          ],
-        ),
-      ),
       ),
     );
   }
@@ -384,7 +385,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
       child: Row(
         children: [
           Icon(
-            Icons.directions_bike, 
+            Icons.directions_bike,
             color: Theme.of(context).primaryColor,
             size: isDesktop ? 32 : 28,
           ),
@@ -393,9 +394,9 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
             child: Text(
               widget.isEdit ? 'Edit Ride' : 'Create New Ride',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                fontSize: isDesktop ? 24 : 20,
-              ),
+                    fontWeight: FontWeight.bold,
+                    fontSize: isDesktop ? 24 : 20,
+                  ),
             ),
           ),
           IconButton(
@@ -419,14 +420,15 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
             Text(
               'Step ${_currentStep + 1} of $_totalSteps',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+                    fontWeight: FontWeight.w500,
+                  ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: LinearProgressIndicator(
                 value: (_currentStep + 1) / _totalSteps,
-                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                backgroundColor:
+                    Theme.of(context).colorScheme.surfaceContainerHighest,
                 valueColor: AlwaysStoppedAnimation<Color>(
                   Theme.of(context).primaryColor,
                 ),
@@ -512,7 +514,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
             label: 'Ride Title',
             hint: 'e.g., Morning Coffee Ride',
             required: true,
-            autofocus: !isWeb, // Don't autofocus on web to prevent keyboard popup
+            autofocus:
+                !isWeb, // Don't autofocus on web to prevent keyboard popup
           ),
           const SizedBox(height: 16),
           _buildTextField(
@@ -568,8 +571,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
                   child: Text(
                     'miles',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                   ),
                 ),
               ),
@@ -585,17 +588,17 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           Text(
             'External Route Links (Optional)',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontSize: isDesktop ? 18 : 16,
-            ),
+                  fontWeight: FontWeight.w600,
+                  fontSize: isDesktop ? 18 : 16,
+                ),
           ),
           const SizedBox(height: 8),
           Text(
             'Link to external route services for detailed route information',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: isDesktop ? 14 : 12,
-            ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: isDesktop ? 14 : 12,
+                ),
           ),
           const SizedBox(height: 16),
           _buildTextField(
@@ -643,8 +646,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
     return Row(
       children: [
         Icon(
-          icon, 
-          size: isDesktop ? 24 : 20, 
+          icon,
+          size: isDesktop ? 24 : 20,
           color: Theme.of(context).primaryColor,
         ),
         const SizedBox(width: 12),
@@ -652,9 +655,9 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           child: Text(
             title,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontSize: isDesktop ? 22 : 18,
-            ),
+                  fontWeight: FontWeight.w600,
+                  fontSize: isDesktop ? 22 : 18,
+                ),
           ),
         ),
       ],
@@ -681,17 +684,19 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
         hintText: hint,
         border: const OutlineInputBorder(),
         contentPadding: EdgeInsets.symmetric(
-          horizontal: 16, 
+          horizontal: 16,
           vertical: isDesktop ? 16 : 12,
         ),
         errorStyle: TextStyle(fontSize: isDesktop ? 14 : 12),
       ),
-      validator: required ? (value) {
-        if (value?.trim().isEmpty ?? true) {
-          return '$label is required';
-        }
-        return null;
-      } : null,
+      validator: required
+          ? (value) {
+              if (value?.trim().isEmpty ?? true) {
+                return '$label is required';
+              }
+              return null;
+            }
+          : null,
     );
   }
 
@@ -706,7 +711,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
         labelText: 'Ride Type',
         border: const OutlineInputBorder(),
         contentPadding: EdgeInsets.symmetric(
-          horizontal: 16, 
+          horizontal: 16,
           vertical: isDesktop ? 16 : 12,
         ),
       ),
@@ -759,7 +764,6 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
     );
   }
 
-
   Widget _buildDayOfWeekDropdown() {
     return DropdownButtonFormField<DayOfWeekType>(
       initialValue: selectedDow,
@@ -795,7 +799,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
       borderRadius: BorderRadius.circular(4),
       child: Container(
         padding: EdgeInsets.symmetric(
-          horizontal: 16, 
+          horizontal: 16,
           vertical: isDesktop ? 18 : 16,
         ),
         decoration: BoxDecoration(
@@ -805,7 +809,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
         child: Row(
           children: [
             Icon(
-              Icons.access_time, 
+              Icons.access_time,
               color: Theme.of(context).primaryColor,
               size: isDesktop ? 24 : 20,
             ),
@@ -813,8 +817,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
             Text(
               'Start Time: ${selectedTime.format(context)}',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: isDesktop ? 16 : 14,
-              ),
+                    fontSize: isDesktop ? 16 : 14,
+                  ),
             ),
             const Spacer(),
             Icon(
@@ -832,8 +836,13 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
     return Container(
       padding: EdgeInsets.all(isDesktop ? 20 : 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        color: Theme.of(context)
+            .colorScheme
+            .primaryContainer
+            .withValues(alpha: 0.3),
+        border: Border.all(
+            color:
+                Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -842,18 +851,18 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           Row(
             children: [
               Icon(
-                Icons.location_on, 
-                color: Theme.of(context).colorScheme.primary, 
+                Icons.location_on,
+                color: Theme.of(context).colorScheme.primary,
                 size: isDesktop ? 24 : 20,
               ),
               const SizedBox(width: 8),
               Text(
                 'Ride Location',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: isDesktop ? 16 : 14,
-                ),
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: isDesktop ? 16 : 14,
+                    ),
               ),
             ],
           ),
@@ -861,14 +870,14 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           Text(
             'Latitude: ${widget.location.latitude.toStringAsFixed(6)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontSize: isDesktop ? 14 : 12,
-            ),
+                  fontSize: isDesktop ? 14 : 12,
+                ),
           ),
           Text(
             'Longitude: ${widget.location.longitude.toStringAsFixed(6)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontSize: isDesktop ? 14 : 12,
-            ),
+                  fontSize: isDesktop ? 14 : 12,
+                ),
           ),
         ],
       ),
@@ -937,9 +946,9 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           Expanded(
             flex: _currentStep == 0 ? 1 : 1,
             child: ElevatedButton(
-              onPressed: _isLoading ? null : (
-                _currentStep == _totalSteps - 1 ? _handleSave : _nextStep
-              ),
+              onPressed: _isLoading
+                  ? null
+                  : (_currentStep == _totalSteps - 1 ? _handleSave : _nextStep),
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(
                   vertical: isDesktop ? 16 : 12,
@@ -954,7 +963,7 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
                   : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(_currentStep == _totalSteps - 1 
+                        Text(_currentStep == _totalSteps - 1
                             ? (widget.isEdit ? 'Update Ride' : 'Create Ride')
                             : 'Next'),
                         if (_currentStep < _totalSteps - 1) ...[
@@ -992,7 +1001,8 @@ class _ResponsiveRideDialogState extends State<ResponsiveRideDialog>
           height: 216,
           color: CupertinoColors.systemBackground.resolveFrom(context),
           child: CupertinoDatePicker(
-            initialDateTime: DateTime(2023, 1, 1, selectedTime.hour, selectedTime.minute),
+            initialDateTime:
+                DateTime(2023, 1, 1, selectedTime.hour, selectedTime.minute),
             mode: CupertinoDatePickerMode.time,
             onDateTimeChanged: (DateTime newTime) {
               setState(() {

@@ -145,7 +145,7 @@ class RideListItem extends StatelessWidget {
               ),
 
               // External routes if available
-              if (ride.hasExternalRoutes) ...[
+              if (ride.hasExternalRoute) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [

@@ -46,19 +46,50 @@ class _LoginWebPageState extends State<LoginWebPage> {
 
     // try sign in
     try {
+      debugPrint('Login: Attempting sign in with email: ${emailController.text.trim()}');
+
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
       );
+
+      debugPrint('Login: ✅ Sign in successful');
       // pop the loading circle
       if (mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      debugPrint("SignIn Error: ${e.code}");
+      debugPrint("Login Firebase Auth Error: ${e.code} - ${e.message}");
+      // pop the loading circle
+      if (mounted) Navigator.pop(context);
+
+      // Show Error Message with more descriptive text
+      String userFriendlyMessage = _getUserFriendlyMessage(e.code);
+      showErrorMessage(userFriendlyMessage);
+    } catch (e) {
+      debugPrint("Login General Error: $e");
       // pop the loading circle
       if (mounted) Navigator.pop(context);
 
       // Show Error Message
-      showErrorMessage(e.code);
+      showErrorMessage('Unknown Error: $e');
+    }
+  }
+
+  String _getUserFriendlyMessage(String errorCode) {
+    switch (errorCode) {
+      case 'user-not-found':
+        return 'No account found with this email';
+      case 'wrong-password':
+        return 'Incorrect password';
+      case 'invalid-email':
+        return 'Invalid email address';
+      case 'user-disabled':
+        return 'This account has been disabled';
+      case 'too-many-requests':
+        return 'Too many login attempts. Try again later';
+      case 'internal-error':
+        return 'Internal server error. Please try again';
+      default:
+        return 'Login failed: $errorCode';
     }
   }
 

@@ -114,9 +114,8 @@ class Ride {
   final int? totalRatings;
   final Map<String, int>? userRatings; // userId -> rating (1-5)
 
-  // External route links
-  final String? rideWithGpsUrl;
-  final String? stravaUrl;
+  // External route link
+  final String? routeUrl;
 
   // Difficulty rating
   final RideDifficulty? difficulty;
@@ -144,8 +143,7 @@ class Ride {
     this.averageRating,
     this.totalRatings,
     this.userRatings,
-    this.rideWithGpsUrl,
-    this.stravaUrl,
+    this.routeUrl,
     this.difficulty,
   });
 
@@ -172,8 +170,7 @@ class Ride {
     double? averageRating,
     int? totalRatings,
     Map<String, int>? userRatings,
-    String? rideWithGpsUrl,
-    String? stravaUrl,
+    String? routeUrl,
     RideDifficulty? difficulty,
   }) {
     return Ride(
@@ -199,8 +196,7 @@ class Ride {
       averageRating: averageRating ?? this.averageRating,
       totalRatings: totalRatings ?? this.totalRatings,
       userRatings: userRatings ?? this.userRatings,
-      rideWithGpsUrl: rideWithGpsUrl ?? this.rideWithGpsUrl,
-      stravaUrl: stravaUrl ?? this.stravaUrl,
+      routeUrl: routeUrl ?? this.routeUrl,
       difficulty: difficulty ?? this.difficulty,
     );
   }
@@ -229,8 +225,7 @@ class Ride {
       "averageRating": averageRating,
       "totalRatings": totalRatings,
       "userRatings": userRatings,
-      "rideWithGpsUrl": rideWithGpsUrl,
-      "stravaUrl": stravaUrl,
+      "routeUrl": routeUrl,
       "difficulty": difficulty,
     };
   }
@@ -263,8 +258,7 @@ class Ride {
       userRatings: map["userRatings"] != null
           ? Map<String, int>.from(map["userRatings"])
           : null,
-      rideWithGpsUrl: map["rideWithGpsUrl"] as String?,
-      stravaUrl: map["stravaUrl"] as String?,
+      routeUrl: map["routeUrl"] as String?,
       difficulty: map["difficulty"] != null
           ? RideDifficulty.values[map["difficulty"]]
           : null,
@@ -304,8 +298,8 @@ class Ride {
     return '${averageRating!.toStringAsFixed(1)} (${totalRatings!} rating${totalRatings! == 1 ? '' : 's'})';
   }
 
-  /// Check if ride has external route links
-  bool get hasExternalRoutes {
-    return (rideWithGpsUrl?.isNotEmpty ?? false) || (stravaUrl?.isNotEmpty ?? false);
+  /// Check if ride has external route link
+  bool get hasExternalRoute {
+    return routeUrl?.isNotEmpty ?? false;
   }
 }

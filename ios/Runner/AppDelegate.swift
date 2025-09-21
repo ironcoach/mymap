@@ -12,7 +12,7 @@ import GoogleMaps
 
     if let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
        let plist = NSDictionary(contentsOfFile: path),
-       let apiKey = plist["API_KEY"] as? String {
+       let apiKey = plist["GOOGLE_MAPS_API_KEY"] as? String {
       GMSServices.provideAPIKey(apiKey)
     } else {
       fatalError("Google Maps API key not found in GoogleService-Info.plist")
