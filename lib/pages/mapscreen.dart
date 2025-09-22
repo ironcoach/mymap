@@ -591,6 +591,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
         if (pos == null) continue;
 
         final latlng = LatLng(pos.latitude, pos.longitude);
+        // Get verification status for InfoWindow
+        final verificationCount = data['verificationCount'] as int? ?? 0;
+        final snippet = data["snippet"] as String? ?? '';
+        final verificationStatus = verificationCount > 0 ? '✅ Verified' : '⚠️ Unverified';
+        final fullSnippet = snippet.isEmpty ? verificationStatus : '$snippet • $verificationStatus';
+
         final marker = Marker(
           markerId: MarkerId(doc.id),
           position: latlng,
@@ -604,7 +610,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
               }
             },
             title: data["title"] as String? ?? 'Untitled Ride',
-            snippet: data["snippet"] as String? ?? '',
+            snippet: fullSnippet,
           ),
           onTap: () {},
           icon: markerIcon,
@@ -751,6 +757,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
         final type = ride.rideType ?? RideType.roadRide;
         final markerIcon = _cachedMarkers![type]!;
 
+        // Get verification status for InfoWindow
+        final verificationCount = ride.verificationCount ?? 0;
+        final snippet = ride.snippet ?? '';
+        final verificationStatus = verificationCount > 0 ? '✅ Verified' : '⚠️ Unverified';
+        final fullSnippet = snippet.isEmpty ? verificationStatus : '$snippet • $verificationStatus';
+
         final marker = Marker(
           markerId: MarkerId(docId),
           position: ride.latlng!,
@@ -763,7 +775,7 @@ class MapScreenState extends ConsumerState<MapScreen> {
               }
             },
             title: ride.title ?? 'Untitled Ride',
-            snippet: ride.snippet ?? '',
+            snippet: fullSnippet,
           ),
           onTap: () {},
           icon: markerIcon,
