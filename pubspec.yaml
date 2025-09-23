@@ -49,6 +49,7 @@ dependencies:
   flutter_email_validator: ^2.1.24
   geolocator: ^14.0.2
   url_launcher: ^6.1.7
+  google_maps_cluster_manager_2: ^3.0.0
 
 
 

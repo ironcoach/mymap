@@ -8,11 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:geolocator/geolocator.dart';
 
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart'
+    hide ClusterManager, Cluster;
+import 'package:google_maps_cluster_manager_2/google_maps_cluster_manager_2.dart';
 import 'package:http/http.dart' as http;
 import 'package:mymap/constants/constants.dart';
 import 'package:mymap/models/auto_complete_result.dart';
 import 'package:mymap/models/ride_data.dart';
+import 'package:mymap/models/cluster_marker.dart';
 import 'package:mymap/pages/app_drawer.dart';
 import 'package:mymap/pages/profile_page.dart';
 import 'package:mymap/providers/providers.dart';
@@ -21,6 +24,7 @@ import 'package:mymap/services/map_services.dart';
 import 'package:mymap/services/sample_ride_service.dart';
 import 'package:mymap/services/location_service.dart';
 import 'package:mymap/services/migration_service.dart';
+import 'package:mymap/services/cluster_icon_service.dart';
 import 'package:mymap/repositories/ride_repository.dart';
 import 'package:mymap/widgets/dialogs/responsive_ride_dialog.dart';
 import 'package:mymap/widgets/dialogs/ride_info_dialog.dart';
@@ -30,11 +34,8 @@ import 'package:mymap/utils/extensions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter/gestures.dart';
-import 'package:mymap/widgets/display_dlg_text.dart';
-import 'package:mymap/widgets/my_textfield.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
-  //const MapScreen({super.key});
   const MapScreen({super.key});
 
   @override
@@ -42,44 +43,43 @@ class MapScreen extends ConsumerStatefulWidget {
 }
 
 class MapScreenState extends ConsumerState<MapScreen> {
-  //Position of initial map and camera is Boulder, CO
-
+  // Map configuration
   CameraPosition _startPosition =
       const CameraPosition(target: _defaultPosition, zoom: _defaultZoom);
 
   static const LatLng _defaultPosition = LatLng(40.017555, -105.258336);
   static const double _defaultZoom = 10.5;
-  static const int _searchDebounceMs = 700;
 
-  ///
-  ///
+  // Clustering variables
+  late ClusterManager<ClusterRideMarker> _clusterManager;
+  Set<Marker> _markers = <Marker>{};
+  List<ClusterRideMarker> _clusterItems = [];
 
-  final Set<Marker> _saveMarkers = <Marker>{};
+  // Icon caching
+  final Map<RideType, BitmapDescriptor> _rideTypeIcons = {};
+  bool _iconsLoaded = false;
 
-  // Cached marker icons to avoid reloading
-  Map<RideType, BitmapDescriptor>? _cachedMarkers;
-
-  // Store ride data for quick access without additional Firestore calls
-  final Map<String, Map<String, dynamic>> _ridesData = {};
-
-  //Debounce to throttle async calls during location search
+  // Timers for debouncing
   Timer? _debounce;
-
-  //Debounce to throttle viewport loading during camera movement
   Timer? _viewportLoadTimer;
 
-  TimeOfDay _selectedTime = TimeOfDay.now();
-  DateTime _selectedDT = DateTime.now();
-
-  //Toggling UI as we need;
+  // UI state
+  final TimeOfDay _selectedTime = TimeOfDay.now();
+  final DateTime _selectedDT = DateTime.now();
   bool searchToggle = false;
   bool showDetailsToggle = false;
 
-  LatLng? tappedPoint;
-  int rideIndex = 0;
-  String rideID = '';
+  // Debug state
+  bool _isLoadingRides = false;
+  int _totalRidesLoaded = 0;
+  String _lastLoadError = '';
+  bool _useSimpleMarkers = false; // Custom clustering implementation
+  final bool _useCustomClustering =
+      true; // Bypass broken google_maps_cluster_manager_2
 
-/////////////
+  // Ride data state
+  LatLng? tappedPoint;
+  String rideID = '';
   String? rideTitle;
   String? rideDesc;
   DayOfWeekType? rideDow;
@@ -94,370 +94,430 @@ class MapScreenState extends ConsumerState<MapScreen> {
   int? rideDistance;
   LatLng? rideLatlng;
 
-/////////////////
-  ///
-  ///
+  // Controllers
   final Completer<GoogleMapController> mapController = Completer();
-
   final _searchController = TextEditingController();
-  TextEditingController titleController = TextEditingController();
-  TextEditingController descController = TextEditingController();
-  TextEditingController snippetController = TextEditingController();
-  TextEditingController dowController = TextEditingController();
-  TextEditingController startPointController = TextEditingController();
-  TextEditingController contactController = TextEditingController();
-  TextEditingController phoneController = TextEditingController();
-  TextEditingController startTimeController = TextEditingController();
-  TextEditingController distanceController = TextEditingController();
+  final List<TextEditingController> _formControllers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeControllers();
+    _clusterItems = [];
+
+    _checkFirestoreConnectivity();
+    _determinePosition();
+    // _runDatabaseMigration();
+  }
+
+  void _initializeControllers() {
+    final controllers = [
+      TextEditingController(), // title
+      TextEditingController(), // desc
+      TextEditingController(), // snippet
+      TextEditingController(), // dow
+      TextEditingController(), // startPoint
+      TextEditingController(), // contact
+      TextEditingController(), // phone
+      TextEditingController(), // startTime
+      TextEditingController(), // distance
+    ];
+    _formControllers.addAll(controllers);
+  }
 
   void _onMapCreated(GoogleMapController controller) {
+    debugPrint('🚀 === _onMapCreated() STARTED ===');
     mapController.complete(controller);
-    _setMarker();
 
-    // Debug: Check if map is ready
-    debugPrint('Google Map created and ready');
+    debugPrint('🚀 Initializing cluster manager...');
+    _initializeClusterManager();
 
-    // Note: Sample rides already exist in database
+    debugPrint('🚀 Loading ride type icons...');
+    _loadRideTypeIcons();
+
+    debugPrint('🚀 Google Map created and ready');
+    debugPrint('🚀 Current cluster items: ${_clusterItems.length}');
+    debugPrint('🚀 Current markers: ${_markers.length}');
+
+    // Wait longer for map to be fully ready, then set initial camera position
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      if (mounted) {
+        debugPrint('🚀 Setting initial camera position for cluster manager');
+        try {
+          final bounds = await controller.getVisibleRegion();
+          final initialPosition = CameraPosition(
+            target: LatLng(
+              (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
+              (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
+            ),
+            zoom: await controller.getZoomLevel(),
+          );
+          debugPrint(
+              '🚀 Initial camera position: ${initialPosition.target} (zoom: ${initialPosition.zoom})');
+          _clusterManager.onCameraMove(initialPosition);
+        } catch (e) {
+          debugPrint('⚠️ Could not set initial camera position: $e');
+        }
+      }
+    });
 
     // Delay viewport loading until map is fully initialized
-    Future.delayed(const Duration(milliseconds: 1000), () {
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      debugPrint('🚀 Delayed viewport loading triggered');
       _loadRidesInViewport();
     });
+    debugPrint('🚀 === _onMapCreated() COMPLETED ===');
   }
 
-  /// Handle camera movement - cancel any pending viewport load
+  Future<void> _loadRideTypeIcons() async {
+    try {
+      debugPrint('Loading ride type icons...');
+
+      final iconPaths = {
+        RideType.gravelRide: 'assets/mapicons/bikeRising.png',
+        RideType.roadRide: 'assets/mapicons/roadRide.png',
+        RideType.mtbRide: 'assets/mapicons/greenBike.png',
+        RideType.bikeEvent: 'assets/mapicons/blueRide.png',
+      };
+
+      for (final entry in iconPaths.entries) {
+        try {
+          _rideTypeIcons[entry.key] = await BitmapDescriptor.asset(
+            const ImageConfiguration(devicePixelRatio: 1.0),
+            entry.value,
+          );
+        } catch (e) {
+          debugPrint('Failed to load icon for ${entry.key}: $e');
+          // Use default marker as fallback
+          _rideTypeIcons[entry.key] = BitmapDescriptor.defaultMarker;
+        }
+      }
+
+      _iconsLoaded = true;
+      debugPrint('✅ Ride type icons loaded successfully');
+    } catch (e) {
+      debugPrint('❌ Error loading ride type icons: $e');
+      _iconsLoaded = false;
+    }
+  }
+
+  void _initializeClusterManager() {
+    debugPrint('🎯 === _initializeClusterManager() STARTED ===');
+    debugPrint('🎯 Initializing with ${_clusterItems.length} cluster items');
+
+    _clusterManager = ClusterManager<ClusterRideMarker>(
+      _clusterItems,
+      _updateMarkers,
+      markerBuilder: _buildClusterMarker,
+      // AGGRESSIVE FIX 1: Force individual markers at current zoom
+      levels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      extraPercent: 0.0, // No extra bounds
+      stopClusteringZoom: 11.0, // Stop clustering at zoom 11 (current is 10.5)
+    );
+
+    debugPrint('🎯 Cluster manager initialized with aggressive settings');
+    debugPrint(
+        '🎯 stopClusteringZoom: 11.0 (current zoom ~10.5 should show individual markers)');
+    debugPrint('🎯 === _initializeClusterManager() COMPLETED ===');
+  }
+
+  void _updateMarkers(Set<Marker> markers) {
+    debugPrint('🗺️ === _updateMarkers() CALLED ===');
+    debugPrint('🗺️ Received ${markers.length} markers from cluster manager');
+    debugPrint('🗺️ Current _markers count before update: ${_markers.length}');
+
+    if (mounted) {
+      setState(() {
+        _markers = markers;
+      });
+      debugPrint(
+          '🗺️ ✅ State updated: _markers now has ${_markers.length} markers');
+
+      // Debug first few markers
+      final markersToShow = markers.take(3);
+      for (final marker in markersToShow) {
+        debugPrint(
+            '🗺️ Marker: ${marker.markerId.value} at ${marker.position}');
+      }
+    } else {
+      debugPrint('🗺️ ❌ Widget not mounted, skipping marker update');
+    }
+    debugPrint('🗺️ === _updateMarkers() COMPLETED ===');
+  }
+
+  Future<Marker> _buildClusterMarker(Cluster<ClusterRideMarker> cluster) async {
+    debugPrint(
+        '🏗️ Building marker for cluster: ${cluster.getId()} (${cluster.count} items)');
+    return Marker(
+      markerId: MarkerId(cluster.getId()),
+      position: cluster.location,
+      onTap: () => _handleMarkerTap(cluster),
+      icon: await _getClusterIcon(cluster),
+      infoWindow: cluster.isMultiple
+          ? InfoWindow(
+              title: '${cluster.count} Rides',
+              snippet: 'Tap to view details or zoom in',
+            )
+          : InfoWindow(
+              title: cluster.items.first.title,
+              snippet: cluster.items.first.snippet,
+            ),
+    );
+  }
+
+  Future<BitmapDescriptor> _getClusterIcon(
+      Cluster<ClusterRideMarker> cluster) async {
+    debugPrint(
+        '🎨 Getting icon for cluster: ${cluster.getId()} (multiple: ${cluster.isMultiple})');
+    if (cluster.isMultiple) {
+      // For clusters, use the cluster icon service
+      return await ClusterIconService.getCachedClusterIcon(cluster.count);
+    } else {
+      // For individual markers, use ride type specific icons
+      final item = cluster.items.first;
+      if (_iconsLoaded && _rideTypeIcons.containsKey(item.rideType)) {
+        debugPrint('🎨 Using custom icon for ${item.rideType}');
+        return _rideTypeIcons[item.rideType]!;
+      } else {
+        debugPrint('🎨 Using default marker icon');
+        return BitmapDescriptor.defaultMarker;
+      }
+    }
+  }
+
+  void _handleMarkerTap(Cluster<ClusterRideMarker> cluster) {
+    debugPrint(
+        '👆 Marker tapped: ${cluster.getId()} (multiple: ${cluster.isMultiple})');
+    if (cluster.isMultiple) {
+      if (cluster.count <= 10) {
+        _showClusterDetailsDialog(cluster);
+      } else {
+        _zoomToCluster(cluster);
+      }
+    } else {
+      // Single marker, show ride details
+      final item = cluster.items.first;
+      rideID = item.id;
+      showDetails();
+    }
+  }
+
+  void _showClusterDetailsDialog(Cluster<ClusterRideMarker> cluster) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              Icons.group,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text('${cluster.count} Rides in this area'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView.separated(
+            itemCount: cluster.items.length,
+            separatorBuilder: (context, index) => const Divider(),
+            itemBuilder: (context, index) {
+              final item = cluster.items.elementAt(index);
+              return ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _getRideTypeIconData(item.rideType),
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  item.title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                subtitle: item.snippet.isNotEmpty
+                    ? Text(
+                        item.snippet,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    : null,
+                trailing: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  rideID = item.id;
+                  showDetails();
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _zoomToCluster(cluster);
+            },
+            icon: const Icon(Icons.zoom_in, size: 18),
+            label: const Text('Zoom In'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _zoomToCluster(Cluster<ClusterRideMarker> cluster) async {
+    final GoogleMapController controller = await mapController.future;
+
+    try {
+      final bounds = _getBoundsFromItems(cluster.items);
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, 100.0),
+      );
+    } catch (e) {
+      // Fallback: zoom to cluster center
+      await controller.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: cluster.location,
+            zoom: 15.0,
+          ),
+        ),
+      );
+    }
+  }
+
+  LatLngBounds _getBoundsFromItems(Iterable<ClusterRideMarker> items) {
+    if (items.isEmpty) {
+      return LatLngBounds(
+        southwest: _defaultPosition,
+        northeast: _defaultPosition,
+      );
+    }
+
+    double minLat = items.first.location.latitude;
+    double maxLat = items.first.location.latitude;
+    double minLng = items.first.location.longitude;
+    double maxLng = items.first.location.longitude;
+
+    for (final item in items) {
+      minLat =
+          minLat < item.location.latitude ? minLat : item.location.latitude;
+      maxLat =
+          maxLat > item.location.latitude ? maxLat : item.location.latitude;
+      minLng =
+          minLng < item.location.longitude ? minLng : item.location.longitude;
+      maxLng =
+          maxLng > item.location.longitude ? maxLng : item.location.longitude;
+    }
+
+    const double padding = 0.001;
+
+    return LatLngBounds(
+      southwest: LatLng(minLat - padding, minLng - padding),
+      northeast: LatLng(maxLat + padding, maxLng + padding),
+    );
+  }
+
+  IconData _getRideTypeIconData(RideType type) {
+    switch (type) {
+      case RideType.roadRide:
+        return Icons.directions_bike;
+      case RideType.gravelRide:
+        return Icons.terrain;
+      case RideType.mtbRide:
+        return Icons.forest;
+      case RideType.bikeEvent:
+        return Icons.event;
+    }
+  }
+
   void _onCameraMove(CameraPosition position) {
-    // Cancel any pending viewport load timer
+    debugPrint(
+        '📹 Camera moving to: ${position.target} (zoom: ${position.zoom})');
     _viewportLoadTimer?.cancel();
+    debugPrint('📹 Calling _clusterManager.onCameraMove()');
+    _clusterManager.onCameraMove(position);
   }
 
-  /// Handle camera idle - trigger debounced viewport loading
   void _onCameraIdle() {
-    // Cancel any existing timer
-    _viewportLoadTimer?.cancel();
+    debugPrint('📹 === Camera idle - triggering updates ===');
+    debugPrint('📹 Calling _clusterManager.updateMap()');
+    _clusterManager.updateMap();
 
-    // Start new timer with debounce
+    _viewportLoadTimer?.cancel();
     _viewportLoadTimer = Timer(const Duration(milliseconds: 800), () {
+      debugPrint('📹 Viewport load timer triggered after camera idle');
       _loadRidesInViewport();
     });
   }
 
+  // User and authentication
   final user = FirebaseAuth.instance.currentUser!;
-  final CollectionReference ridesDataFS =
-      FirebaseFirestore.instance.collection('rides');
 
-  // sign user out method
   void signUserOut() {
     FirebaseAuth.instance.signOut();
   }
 
-  // go to Profile Page
   void goToProfilePage() {
     Navigator.pop(context);
-
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ProfilePage()),
     );
   }
 
-  Future<void> _selectTime(BuildContext context) async {
-    //_selectedDT = _selectedDT.copyWith(hour: 5, minute: 0);
-    if (Theme.of(context).platform == TargetPlatform.iOS) {
-      await showCupertinoModalPopup(
-        context: context,
-        builder: (BuildContext builder) => SizedBox(
-          height: 216,
-          child: CupertinoDatePicker(
-            backgroundColor: context.colorScheme.surfaceContainerHighest,
-            initialDateTime: _selectedDT,
-            mode: CupertinoDatePickerMode.time,
-            onDateTimeChanged: (DateTime newTime) {
-              setState(() {
-                _selectedDT = newTime;
-                _selectedTime = TimeOfDay.fromDateTime(_selectedDT);
-              });
-            },
-          ),
-        ),
-      );
-    } else {
-      await showTimePicker(
-        context: context,
-        initialTime: _selectedTime,
-      ).then((value) {
-        if (value != null) {
-          setState(() {
-            _selectedDT = DateTime(_selectedDT.year, _selectedDT.month,
-                _selectedDT.day, value.hour, value.minute);
-            _selectedTime = TimeOfDay.fromDateTime(_selectedDT);
-          });
-        }
-        return;
-      });
-      return;
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Basic network connectivity check
-    // _checkNetworkConnectivity();
-
-    // Firestore connectivity and read/write test
-    _checkFirestoreConnectivity();
-
-    // Quick user verification
-    //_verifyUserAuthentication();
-
-    // Inspect local Firestore cache
-    //_inspectLocalCache();
-
-    _determinePosition();
-    _runDatabaseMigration();
-  }
-
   Future<void> _checkFirestoreConnectivity() async {
-    debugPrint('=== FIRESTORE CONNECTIVITY TEST ===');
-
     try {
-      // Test 1: Basic network
-      debugPrint('1. Testing basic internet connectivity...');
-      final response =
-          await http.get(Uri.parse('https://www.google.com')).timeout(
-                const Duration(seconds: 5),
-              );
-      debugPrint('✅ Basic internet: OK (${response.statusCode})');
-
-      // Test 2: Firebase Auth status
-      debugPrint('2. Checking Firebase Auth...');
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        debugPrint('✅ User authenticated: ${user.uid}');
-        debugPrint('User email: ${user.email}');
-        debugPrint(
-            'User provider: ${user.providerData.map((p) => p.providerId).join(', ')}');
-
-        // Try to refresh the auth token (with error handling)
-        try {
-          debugPrint('Attempting to refresh auth token...');
-          final token =
-              await user.getIdToken(true).timeout(const Duration(seconds: 10));
-          debugPrint('✅ Auth token refreshed successfully');
-        } catch (tokenError) {
-          debugPrint('❌ Auth token refresh failed: $tokenError');
-          debugPrint('This may indicate network issues or auth problems');
-
-          // Try to get existing token without refresh
-          try {
-            final existingToken = await user.getIdToken(false);
-            debugPrint('✅ Got existing auth token (not refreshed)');
-          } catch (e) {
-            debugPrint('❌ Cannot get any auth token: $e');
-          }
-        }
-      } else {
-        debugPrint('❌ No authenticated user');
-        return; // Skip Firestore tests if no user
-      }
-
-      // Test 3: Firestore settings
-      debugPrint('3. Checking Firestore settings...');
-      final settings = FirebaseFirestore.instance.settings;
-      debugPrint('Persistence enabled: ${settings.persistenceEnabled}');
-
-      // Test 4: Simple Firestore read with detailed error handling
-      debugPrint('4. Testing Firestore read access...');
-      try {
         final testDoc = await FirebaseFirestore.instance
             .collection('rides')
             .limit(1)
             .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 15));
-        debugPrint('✅ Firestore read: SUCCESS (${testDoc.docs.length} docs)');
-
-        // Test 5: Simple Firestore write
-        debugPrint('5. Testing Firestore write access...');
-        final testRef = FirebaseFirestore.instance
-            .collection('test_connectivity')
-            .doc('test_${DateTime.now().millisecondsSinceEpoch}');
-
-        await testRef.set({
-          'test': true,
-          'timestamp': FieldValue.serverTimestamp(),
-          'user': user.uid,
-          'created': DateTime.now().toIso8601String(),
-        }).timeout(const Duration(seconds: 15));
-
-        debugPrint('✅ Firestore write: SUCCESS');
-
-        // Verify the write
-        final verification =
-            await testRef.get(const GetOptions(source: Source.server));
-        if (verification.exists) {
-          debugPrint('✅ Write verification: SUCCESS');
-        } else {
-          debugPrint('❌ Write verification: FAILED - document not found');
-        }
-
-        // Clean up test document
-        await testRef.delete();
-        debugPrint('✅ Test cleanup: SUCCESS');
-      } catch (firestoreError) {
-        debugPrint('❌ Firestore test FAILED: $firestoreError');
-
-        if (firestoreError.toString().contains('unavailable')) {
-          debugPrint(
-              '🔧 Firestore service is unavailable - this is the root cause');
-        } else if (firestoreError.toString().contains('permission-denied')) {
-          debugPrint('🔧 Permission denied - check Firestore security rules');
-        } else if (firestoreError.toString().contains('unauthenticated')) {
-          debugPrint('🔧 Authentication problem detected');
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ General connectivity test FAILED: $e');
-    }
-
-    debugPrint('=== END FIRESTORE CONNECTIVITY TEST ===');
-  }
-
-// Add this method to MapScreen
-  Future<void> _inspectLocalCache() async {
-    try {
-      debugPrint('=== INSPECTING LOCAL FIRESTORE CACHE ===');
-
-      // Check what's in local cache vs server
-      final localQuery = await FirebaseFirestore.instance
-          .collection('rides')
-          .get(const GetOptions(source: Source.cache));
-
-      final serverQuery = await FirebaseFirestore.instance
-          .collection('rides')
-          .get(const GetOptions(source: Source.server));
-
-      debugPrint('Documents in LOCAL cache: ${localQuery.docs.length}');
-      debugPrint('Documents on SERVER: ${serverQuery.docs.length}');
-
-      // Show details of cached documents
-      for (var doc in localQuery.docs) {
-        final data = doc.data();
+            .timeout(const Duration(seconds: 10));
         debugPrint(
-            'Cached doc: ${doc.id} - ${data['title']} - ${doc.metadata.hasPendingWrites ? "PENDING WRITE" : "SYNCED"}');
-      }
-
-      for (var doc in serverQuery.docs) {
-        final data = doc.data();
-        debugPrint('Server doc: ${doc.id} - ${data['title']}');
+            '✅ Firestore connectivity: OK (${testDoc.docs.length} docs)');
       }
     } catch (e) {
-      debugPrint('Cache inspection error: $e');
+      debugPrint('❌ Firestore connectivity test failed: $e');
     }
   }
 
-  void _checkNetworkConnectivity() async {
-    try {
-      debugPrint('Testing basic network connectivity...');
-
-      // Simple HTTP request to test internet
-      final response =
-          await http.get(Uri.parse('https://www.google.com')).timeout(
-                const Duration(seconds: 5),
-              );
-
-      if (response.statusCode == 200) {
-        debugPrint('✅ Network connectivity: OK');
-      } else {
-        debugPrint('❌ Network issue: Status ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('❌ Network connectivity failed: $e');
-    }
-  }
-
-  void _verifyUserAuthentication() {
-    final user = FirebaseAuth.instance.currentUser;
-
-    debugPrint('=== USER CHECK ===');
-    if (user == null) {
-      debugPrint('❌ NO USER LOGGED IN - Ride creation will fail');
-    } else {
-      debugPrint('✅ User logged in: ${user.uid} (${user.email})');
-      debugPrint('Anonymous: ${user.isAnonymous}');
-    }
-    debugPrint('=== END USER CHECK ===');
-  }
-
-  /// Runs the database migration to convert GeoPoint to separate lat/lng fields
   Future<void> _runDatabaseMigration() async {
     try {
-      debugPrint('Starting database migration...');
-
-      // First, let's inspect what's actually in the database
-      await _inspectDatabaseDocument();
-
-      // Force update to see if fields actually get written
-      final result =
-          await MigrationService.migrateGeoPointToLatLng(forceUpdate: true);
-
-      debugPrint('Migration completed: ${result.summary}');
-
-      if (result.wasSuccessful) {
-        debugPrint('Migration successful! Verifying...');
-        final verified = await MigrationService.verifyMigration();
-        if (verified) {
-          debugPrint('Migration verification passed ✅');
-        } else {
-          debugPrint('Migration verification failed ❌');
-        }
-      } else {
-        debugPrint('Migration had errors: ${result.errors}');
-      }
-
-      // Inspect again after migration
-      await _inspectDatabaseDocument();
+      final result = await MigrationService.migrateGeoPointToLatLng();
+      debugPrint('Migration result: ${result.summary}');
     } catch (e) {
       debugPrint('Migration failed: $e');
-    }
-  }
-
-  /// Inspects the first document to see what fields exist
-  Future<void> _inspectDatabaseDocument() async {
-    try {
-      debugPrint('=== DOCUMENT INSPECTION (limit 1 from rides collection) ===');
-      final querySnapshot =
-          await FirebaseFirestore.instance.collection('rides').limit(1).get();
-      debugPrint(
-          'Inspection query returned ${querySnapshot.docs.length} documents');
-      if (querySnapshot.docs.isNotEmpty) {
-        final doc = querySnapshot.docs.first;
-        final data = doc.data();
-        debugPrint('Document ID: ${doc.id}');
-        debugPrint('All fields in document:');
-        data.forEach((key, value) {
-          debugPrint('  $key: $value (${value.runtimeType})');
-        });
-        debugPrint('=== END INSPECTION ===');
-      }
-    } catch (e) {
-      debugPrint('Failed to inspect document: $e');
     }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    titleController.dispose();
-    descController.dispose();
-    snippetController.dispose();
-    dowController.dispose();
-    startPointController.dispose();
-    contactController.dispose();
-    phoneController.dispose();
-    startTimeController.dispose();
-    distanceController.dispose();
+    for (final controller in _formControllers) {
+      controller.dispose();
+    }
+    _debounce?.cancel();
+    _viewportLoadTimer?.cancel();
+    ClusterIconService.clearCache();
     super.dispose();
   }
 
@@ -479,324 +539,119 @@ class MapScreenState extends ConsumerState<MapScreen> {
     setState(() {});
   }
 
-  Future<void> _oldDeterminePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    // Test if location services are enabled.
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      // Location services are not enabled don't continue
-      // accessing the position and request users of the
-      // App to enable the location services.
-      return Future.error('Location services are disabled.');
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        // Permissions are denied, next time you could try
-        // requesting permissions again (this is also where
-        // Android's shouldShowRequestPermissionRationale
-        // returned true. According to Android guidelines
-        // your App should show an explanatory UI now.
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      // Permissions are denied forever, handle appropriately.
-      return Future.error(
-          'Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    // When we reach here, permissions are granted and we can
-    // continue accessing the position of the device.
-
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 100,
-        ),
-      );
-
-      if (mounted) {
-        _startPosition = CameraPosition(
-          target: LatLng(position.latitude, position.longitude),
-          zoom: 11.0,
-        );
-        gotoSearchedPlace(position.latitude, position.longitude);
-        setState(() {});
-      }
-    } catch (e) {
-      // Fallback to default position if location fails
-      if (mounted) {
-        setState(() {
-          _startPosition = const CameraPosition(
-            target: _defaultPosition,
-            zoom: _defaultZoom,
-          );
-        });
-      }
-    }
-
-    //return await Geolocator.getCurrentPosition();
-  }
-
-  Future<void> _getRideData() async {
-    debugPrint('=== _getRideData started ===');
-    try {
-      debugPrint('Clearing existing markers and cached data...');
-      _saveMarkers.clear();
-      _ridesData.clear(); // Clear cached data for fresh reload
-
-      debugPrint('Loading marker icons...');
-      // Load marker icons only if not cached
-      _cachedMarkers ??= {
-        RideType.gravelRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/bikeRising.png'),
-        RideType.roadRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/roadRide.png'),
-        RideType.mtbRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/greenBike.png'),
-        RideType.bikeEvent: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/blueRide.png'),
-      };
-      debugPrint('Marker icons loaded/cached');
-
-      debugPrint('Fetching rides from Firestore...');
-      final querySnapshot = await ridesDataFS.get();
-      debugPrint('Loaded ${querySnapshot.docs.length} rides from Firestore');
-
-      debugPrint('Processing rides and creating markers...');
-      for (var doc in querySnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-
-        // Caching disabled to avoid data inconsistency issues
-        // _ridesData[doc.id] = data;
-
-        final rideTypeIndex = data['rideType'] as int? ?? 0;
-        if (rideTypeIndex >= RideType.values.length) continue;
-
-        final type = RideType.values[rideTypeIndex];
-        final markerIcon = _cachedMarkers![type]!;
-
-        final pos = data["latlng"] as GeoPoint?;
-        if (pos == null) continue;
-
-        final latlng = LatLng(pos.latitude, pos.longitude);
-        // Get verification status for InfoWindow
-        final verificationCount = data['verificationCount'] as int? ?? 0;
-        final snippet = data["snippet"] as String? ?? '';
-        final verificationStatus = verificationCount > 0 ? '✅ Verified' : '⚠️ Unverified';
-        final fullSnippet = snippet.isEmpty ? verificationStatus : '$snippet • $verificationStatus';
-
-        final marker = Marker(
-          markerId: MarkerId(doc.id),
-          position: latlng,
-          infoWindow: InfoWindow(
-            onTap: () {
-              rideID = doc.id;
-              setRideDetailsFromCache(doc.id);
-              if (mounted) {
-                showDetails();
-                setState(() {});
-              }
-            },
-            title: data["title"] as String? ?? 'Untitled Ride',
-            snippet: fullSnippet,
-          ),
-          onTap: () {},
-          icon: markerIcon,
-        );
-        _saveMarkers.add(marker);
-      }
-
-      debugPrint('Created ${_saveMarkers.length} markers');
-
-      debugPrint('Calling setState to update UI...');
-      if (mounted) {
-        setState(() {});
-      }
-      debugPrint('setState completed');
-
-      debugPrint('=== _getRideData completed successfully ===');
-    } catch (e) {
-      debugPrint('=== ERROR in _getRideData ===');
-      debugPrint('Error details: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load rides: $e')),
-        );
-      }
-    }
-  }
-
-  /// Load rides within the current map viewport - FORCE SERVER READ
   Future<void> _loadRidesInViewport() async {
-    debugPrint('=== _loadRidesInViewport started ===');
+    debugPrint('🚀 === _loadRidesInViewport() STARTED ===');
+
+    if (mounted) {
+      setState(() {
+        _isLoadingRides = true;
+        _lastLoadError = '';
+      });
+    }
 
     final GoogleMapController controller = await mapController.future;
 
     try {
-      // Get current map bounds
-      final LatLngBounds bounds = await controller.getVisibleRegion();
+      final bounds = await controller.getVisibleRegion();
+      debugPrint(
+          '📍 Map bounds: NE(${bounds.northeast.latitude}, ${bounds.northeast.longitude}) SW(${bounds.southwest.latitude}, ${bounds.southwest.longitude})');
+
+      if (bounds.northeast.latitude <= -90 ||
+          bounds.southwest.latitude <= -90) {
+        debugPrint('❌ Invalid bounds detected, skipping viewport load');
+        if (mounted) {
+          setState(() {
+            _isLoadingRides = false;
+            _lastLoadError = 'Invalid map bounds';
+          });
+        }
+        return;
+      }
 
       debugPrint(
-          'Viewport bounds: NE(${bounds.northeast.latitude}, ${bounds.northeast.longitude}), SW(${bounds.southwest.latitude}, ${bounds.southwest.longitude})');
+          '📊 Current cluster items before load: ${_clusterItems.length}');
+      debugPrint('📊 Current markers before load: ${_markers.length}');
 
-      // Check for invalid bounds (map not ready yet)
-      if (bounds.northeast.latitude <= -90 ||
-          bounds.southwest.latitude <= -90 ||
-          bounds.northeast.longitude <= -180 ||
-          bounds.southwest.longitude <= -180) {
-        debugPrint(
-            'Invalid viewport bounds detected - map not ready yet, skipping load');
-        return;
-      }
-
-      // Clear existing markers and cached data
-      _saveMarkers.clear();
-      _ridesData.clear();
-
-      // Load marker icons only if not cached
-      _cachedMarkers ??= {
-        RideType.gravelRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/bikeRising.png'),
-        RideType.roadRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/roadRide.png'),
-        RideType.mtbRide: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/greenBike.png'),
-        RideType.bikeEvent: await BitmapDescriptor.asset(
-            const ImageConfiguration(devicePixelRatio: 1.0),
-            'assets/mapicons/blueRide.png'),
-      };
-
-      // Get rides in viewport using repository WITH FORCED SERVER READ
       final repository = RideRepository();
-      List<Ride> rides;
+      final rides = await repository.getRidesInViewport(
+        northLat: bounds.northeast.latitude,
+        southLat: bounds.southwest.latitude,
+        eastLng: bounds.northeast.longitude,
+        westLng: bounds.southwest.longitude,
+      );
 
-      try {
-        debugPrint('Attempting to load rides from SERVER...');
-        rides = await repository.getRidesInViewport(
-          northLat: bounds.northeast.latitude,
-          southLat: bounds.southwest.latitude,
-          eastLng: bounds.northeast.longitude,
-          westLng: bounds.southwest.longitude,
-        );
-        debugPrint('✅ Loaded ${rides.length} rides from SERVER');
-      } catch (e) {
-        debugPrint('❌ Failed to load from server: $e');
-        debugPrint('This suggests network issues or server problems');
+      debugPrint('📈 Repository returned ${rides.length} rides');
 
-        // Show user that we're using potentially stale data
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Using cached data - check internet connection'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-
-        rides = []; // Don't show cached data that might be stale
-        return;
-      }
-
-      // Debug: If no rides in viewport, check what's actually in the database
-      if (rides.isEmpty) {
+      // Debug each ride's data
+      for (int i = 0; i < rides.length && i < 3; i++) {
+        final ride = rides[i];
         debugPrint(
-            '=== DEBUG: No rides in viewport, checking total rides in database ===');
-        try {
-          final querySnapshot = await FirebaseFirestore.instance
-              .collection('rides')
-              .get(
-                  const GetOptions(source: Source.server)); // Force server read
+            '🚴 Ride $i: ${ride.title} at ${ride.latlng} (lat: ${ride.latitude}, lng: ${ride.longitude})');
+      }
+
+      if (_useSimpleMarkers) {
+        // Debug mode: Use simple markers instead of clustering
+        debugPrint('🔧 DEBUG MODE: Using simple markers instead of clustering');
+        final simpleMarkers = _createSimpleMarkers(rides);
+
+        if (mounted) {
+          setState(() {
+            _markers = simpleMarkers;
+            _totalRidesLoaded = rides.length;
+            _isLoadingRides = false;
+          });
           debugPrint(
-              'Total rides in database (SERVER): ${querySnapshot.docs.length}');
-
-          if (querySnapshot.docs.isNotEmpty) {
-            debugPrint('Sample ride locations from SERVER:');
-            for (var doc in querySnapshot.docs.take(3)) {
-              final data = doc.data();
-              debugPrint('  - Doc ID: ${doc.id}');
-              debugPrint('  - Title: ${data['title']}');
-              debugPrint(
-                  '  - Has pending writes: ${doc.metadata.hasPendingWrites}');
-              debugPrint('  - From cache: ${doc.metadata.isFromCache}');
-
-              final latlng = data['latlng'] as GeoPoint?;
-              if (latlng != null) {
-                debugPrint(
-                    '  - Location: ${latlng.latitude}, ${latlng.longitude}');
-              }
-              debugPrint('---');
-            }
-          }
-        } catch (e) {
-          debugPrint('Error checking total rides from server: $e');
+              '✅ State updated with ${simpleMarkers.length} simple markers');
         }
-        debugPrint('=== END DEBUG ===');
+      } else if (_useCustomClustering) {
+        // NUCLEAR OPTION: Custom clustering implementation
+        debugPrint('🚀 NUCLEAR OPTION: Using custom clustering implementation');
+        final customMarkers = await _createCustomClusteredMarkers(rides);
+
+        if (mounted) {
+          setState(() {
+            _markers = customMarkers;
+            _totalRidesLoaded = rides.length;
+            _isLoadingRides = false;
+          });
+          debugPrint(
+              '✅ State updated with ${customMarkers.length} custom clustered markers');
+        }
+      } else {
+        // Normal mode: Use clustering
+        final newClusterItems = ClusterRideMarker.fromRides(rides);
+        debugPrint(
+            '🎯 ClusterRideMarker.fromRides() created ${newClusterItems.length} cluster items');
+
+        if (mounted) {
+          // AGGRESSIVE FIX 2: Set camera position BEFORE adding items
+          debugPrint('🔧 === AGGRESSIVE FIX: CAMERA FIRST, THEN ITEMS ===');
+
+          _setCurrentCameraPositionThenAddItems(newClusterItems, rides.length);
+        } else {
+          debugPrint('❌ Widget not mounted, skipping state update');
+        }
       }
 
-      // Create markers for rides in viewport
-      for (var ride in rides) {
-        if (ride.latlng == null) continue;
-
-        final docId = ride.id ?? 'unknown_${rides.indexOf(ride)}';
-        final type = ride.rideType ?? RideType.roadRide;
-        final markerIcon = _cachedMarkers![type]!;
-
-        // Get verification status for InfoWindow
-        final verificationCount = ride.verificationCount ?? 0;
-        final snippet = ride.snippet ?? '';
-        final verificationStatus = verificationCount > 0 ? '✅ Verified' : '⚠️ Unverified';
-        final fullSnippet = snippet.isEmpty ? verificationStatus : '$snippet • $verificationStatus';
-
-        final marker = Marker(
-          markerId: MarkerId(docId),
-          position: ride.latlng!,
-          infoWindow: InfoWindow(
-            onTap: () {
-              rideID = docId;
-              if (mounted) {
-                showDetails();
-                setState(() {});
-              }
-            },
-            title: ride.title ?? 'Untitled Ride',
-            snippet: fullSnippet,
-          ),
-          onTap: () {},
-          icon: markerIcon,
-        );
-        _saveMarkers.add(marker);
-      }
-
-      debugPrint('Created ${_saveMarkers.length} markers for viewport');
-
-      // Update UI
-      if (mounted) {
-        setState(() {});
-      }
-
-      debugPrint('=== _loadRidesInViewport completed successfully ===');
+      debugPrint('📊 Final cluster items count: ${_clusterItems.length}');
+      debugPrint('📊 Final markers count: ${_markers.length}');
+      debugPrint('✅ === _loadRidesInViewport() COMPLETED ===');
     } catch (e) {
-      debugPrint('=== ERROR in _loadRidesInViewport ===');
-      debugPrint('Error details: $e');
+      debugPrint('❌ Error loading rides: $e');
+      debugPrint('❌ Error type: ${e.runtimeType}');
+      debugPrint('❌ Stack trace: ${StackTrace.current}');
+
       if (mounted) {
+        setState(() {
+          _isLoadingRides = false;
+          _lastLoadError = e.toString();
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load rides in viewport: $e')),
+          SnackBar(
+            content: Text('Failed to load rides: $e'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     }
@@ -805,17 +660,13 @@ class MapScreenState extends ConsumerState<MapScreen> {
   void newRideDialog(LatLng latlng, bool isEdit) {
     showDialog(
       context: context,
-      barrierDismissible:
-          true, // Allow barrier dismissal but handle unsaved changes
+      barrierDismissible: true,
       builder: (context) => ResponsiveRideDialog(
         location: latlng,
         isEdit: isEdit,
         existingRide: isEdit ? _getCurrentRideFromData() : null,
         onSave: _handleRideSave,
-        onCancel: () {
-          debugPrint('Dialog cancelled by user');
-          Navigator.pop(context);
-        },
+        onCancel: () => Navigator.pop(context),
       ),
     );
   }
@@ -829,16 +680,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
         isEdit: true,
         existingRide: existingRide,
         onSave: _handleRideSave,
-        onCancel: () {
-          debugPrint('Edit dialog cancelled by user');
-          Navigator.pop(context);
-        },
+        onCancel: () => Navigator.pop(context),
       ),
     );
   }
 
   Ride? _getCurrentRideFromData() {
-    // Create ride from current form data for editing
     return Ride(
       title: rideTitle,
       desc: rideDesc,
@@ -860,515 +707,42 @@ class MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _handleRideSave(Ride ride, bool isEdit) async {
-    debugPrint('=== _handleRideSave called ===');
-
     final repository = RideRepository();
     try {
       if (isEdit) {
-        debugPrint('Updating existing ride...');
         await repository.updateRide(rideID, ride);
       } else {
-        debugPrint('Adding new ride...');
-        final rideId = await repository.addRide(ride);
-        debugPrint('✅ Ride created with ID: $rideId');
+        await repository.addRide(ride);
       }
 
       if (!mounted) return;
 
-      // ONLY refresh map data after confirmed success
-      debugPrint('Refreshing map data after successful save...');
       _loadRidesInViewport();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEdit
-              ? 'Ride updated successfully!'
-              : 'Ride created successfully!'),
+          content: Text(isEdit ? 'Ride updated!' : 'Ride created!'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
-      debugPrint('❌ REAL ERROR in _handleRideSave: $e');
-
-      if (!mounted) return;
-
-      // Show actual error - DON'T refresh map on failure
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Failed to save ride: ${e.toString().replaceAll('RideRepositoryException: ', '')}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
-  }
-
-  void _oldNewRideDialog(LatLng latlng, bool isEdit) {
-    RideType tmpRideType = RideType.roadRide;
-    DayOfWeekType tmpDOW = DayOfWeekType.monday;
-    // rideDow = tmpDOW;
-    // rideType = tmpRideType;
-    // rideStartTime = _selectedTime;
-    //_selectedTime = rideStartTime!;
-    // Init Fields for screen
-    if (isEdit) {
-      titleController.text = rideTitle ?? '';
-      descController.text = rideDesc ?? '';
-      snippetController.text = rideSnippet ?? '';
-      startPointController.text = rideStartPointDesc ?? '';
-      contactController.text = rideContact ?? '';
-      phoneController.text = ridePhone ?? '';
-      distanceController.text = rideDistance?.toString() ?? '0';
-      tmpRideType = rideType ?? RideType.roadRide;
-      tmpDOW = rideDow ?? DayOfWeekType.monday;
-      _selectedTime = rideStartTime ?? TimeOfDay.now();
-    } else {
-      rideDistance = 0;
-      // rideDow = tmpDOW;
-      // rideType = tmpRideType;
-      // rideStartTime = _selectedTime;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: context.colorScheme.onTertiary,
-        title: isEdit
-            ? const Text("Edit Ride Details")
-            : const Text("Add a new Ride"),
-        scrollable: true,
-        content: StatefulBuilder(
-          builder: (BuildContext context, setState) {
-            return Column(
-              children: [
-                MyTextField(
-                    controller: titleController,
-                    hintText: "Ride Title",
-                    obscureText: false),
-                MyTextField(
-                    controller: descController,
-                    hintText: "Ride Description",
-                    obscureText: false),
-                MyTextField(
-                    controller: snippetController,
-                    hintText: "Info Window Snippet",
-                    obscureText: false),
-                Padding(
-                  padding:
-                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
-                  child: DropdownButtonFormField(
-                    decoration: InputDecoration(
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(
-                            color: context.colorScheme.outlineVariant),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide:
-                            BorderSide(color: context.colorScheme.outline),
-                      ),
-                      fillColor: context.colorScheme.onInverseSurface,
-                      filled: true,
-                      // hintText: "Day of Week",
-                      // hintStyle:
-                      //     TextStyle(color: context.colorScheme.outlineVariant),
-                    ),
-                    dropdownColor: context.colorScheme.onInverseSurface,
-                    padding: EdgeInsets.zero,
-                    initialValue: tmpDOW,
-                    onSaved: (newDay) {
-                      setState(() {
-                        tmpDOW = newDay!;
-                        rideDow = tmpDOW;
-                      });
-                    },
-                    onChanged: (newDay) {
-                      setState(() {
-                        tmpDOW = newDay!;
-                        rideDow = tmpDOW;
-                      });
-                    },
-                    items: DayOfWeekType.values.map((DayOfWeekType type) {
-                      return DropdownMenuItem(
-                          // value: type, child: Text(type.toString()));
-                          value: type,
-                          child: Text(type.titleName));
-                    }).toList(),
-                  ),
-                ),
-                /////// Time
-                ///
-                Padding(
-                  padding:
-                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border:
-                          Border.all(color: context.colorScheme.outlineVariant),
-
-                      color: context.colorScheme.onInverseSurface,
-                      //borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: GestureDetector(
-                      onTap: () async {
-                        await _selectTime(context).then((value) {
-                          setState(() {
-                            rideStartTime = _selectedTime;
-                          });
-                        });
-                      },
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(20.0),
-                            child: Text(
-                              '${_selectedTime.hourOfPeriod}:${_selectedTime.minute.toString().padLeft(2, '0')} ${_selectedTime.period == DayPeriod.am ? 'AM' : 'PM'}',
-                              //style: const TextStyle(fontSize: 20),
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.only(right: 10.0),
-                            child: Icon(
-                                IconData(0xe662, fontFamily: 'MaterialIcons')),
-                          )
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                ///
-                /////////
-                Padding(
-                  padding:
-                      const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
-                  child: DropdownButtonFormField(
-                    decoration: InputDecoration(
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(
-                            color: context.colorScheme.outlineVariant),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide:
-                            BorderSide(color: context.colorScheme.outline),
-                      ),
-                      fillColor: context.colorScheme.onInverseSurface,
-                      filled: true,
-                    ),
-                    dropdownColor: context.colorScheme.onInverseSurface,
-                    initialValue: tmpRideType,
-                    onSaved: (newRideType) {
-                      setState(() {
-                        tmpRideType = newRideType!;
-                        rideType = tmpRideType;
-                      });
-                    },
-                    onChanged: (newRideType) {
-                      setState(() {
-                        tmpRideType = newRideType!;
-                        rideType = tmpRideType;
-                      });
-                    },
-                    items: RideType.values.map((RideType type) {
-                      return DropdownMenuItem(
-                          // value: type, child: Text(type.toString()));
-                          value: type,
-                          child: Text(type.titleName));
-                    }).toList(),
-                  ),
-                ),
-                MyTextField(
-                    controller: distanceController,
-                    hintText: "Distance",
-                    obscureText: false),
-                // MyTextField(
-                //     controller: startTimeController,
-                //     hintText: "Start Time",
-                //     obscureText: false),
-                MyTextField(
-                    controller: startPointController,
-                    hintText: "Starting Point Description",
-                    obscureText: false),
-                MyTextField(
-                    controller: contactController,
-                    hintText: "Contact Name",
-                    obscureText: false),
-                MyTextField(
-                    controller: phoneController,
-                    hintText: "Contact Phone",
-                    obscureText: false),
-              ],
-            );
-          },
-        ),
-        actions: [
-          _cancelNewRideButton(),
-          _saveNewRideButton(latlng, isEdit),
-        ],
-      ),
-    );
-  }
-
-  Widget _cancelNewRideButton() {
-    return MaterialButton(
-      onPressed: () {
-        Navigator.pop(context);
-        //clear controllers
-        titleController.clear();
-        descController.clear();
-        snippetController.clear();
-        dowController.clear();
-        startPointController.clear();
-        contactController.clear();
-        phoneController.clear();
-        startTimeController.clear();
-        distanceController.clear();
-      },
-      child: const Text('Cancel'),
-    );
-  }
-
-  Widget _saveNewRideButton(LatLng latLng, bool isEdit) {
-    return MaterialButton(
-      onPressed: () async {
-        final FireStoreService fs = FireStoreService();
-        final ride = Ride(
-          title: titleController.text.trim(),
-          desc: descController.text.trim(),
-          snippet: snippetController.text.trim(),
-          dow: rideDow,
-          startTime: DateTime(DateTime.now().year, DateTime.now().month,
-              DateTime.now().day, rideStartTime!.hour, rideStartTime!.minute),
-          startPointDesc: startPointController.text.trim(),
-          contact: contactController.text.trim(),
-          phone: phoneController.text.trim(),
-          latlng: latLng,
-          verified: false,
-          verifiedBy: rideVerifiedBy,
-          createdBy: user.uid,
-          rideType: rideType,
-          rideDistance: int.tryParse(distanceController.text.trim()),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save ride: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
-        if (isEdit) {
-          await fs.updateRide(rideID, ride);
-        } else {
-          await fs.addRide(ride);
-        }
-
-        if (!mounted) return;
-
-        _loadRidesInViewport();
-        Navigator.pop(context);
-        //clear controllers
-        titleController.clear();
-        descController.clear();
-        snippetController.clear();
-        dowController.clear();
-        startPointController.clear();
-        contactController.clear();
-        phoneController.clear();
-      },
-      child: const Text('Save'),
-    );
-  }
-
-  void _setMarker() async {
-    final GoogleMapController controller = await mapController.future;
-    LatLngBounds bounds = await controller.getVisibleRegion();
-
-    final Set<Marker> newMarkers = Set<Marker>.from(_saveMarkers.where(
-      (marker) => bounds.contains(marker.position),
-    ));
-    setState(() {
-      // TODO: Implement visible marker filtering if needed
-    });
-  }
-
-  // Fast method using cached data instead of Firestore call
-  Ride? _createRideFromCache(String docId) {
-    debugPrint('=== _createRideFromCache called with docId: $docId ===');
-    debugPrint('_ridesData cache contains ${_ridesData.length} entries');
-    debugPrint('Cache keys: ${_ridesData.keys.toList()}');
-    final data = _ridesData[docId];
-    if (data == null) {
-      debugPrint('No data found in cache for docId: $docId');
-      return null;
+      }
     }
-
-    try {
-      GeoPoint pos = data["latlng"];
-      LatLng latlng = LatLng(pos.latitude, pos.longitude);
-
-      return Ride(
-        id: null, // Using docId as rideId parameter instead
-        title: data['title'],
-        desc: data['desc'],
-        snippet: data['snippet'],
-        dow: data['dow'] != null ? DayOfWeekType.values[data['dow']] : null,
-        startTime: data['startTime'] is DateTime
-            ? data['startTime']
-            : data['startTime']?.toDate(),
-        startPointDesc: data['startPointDesc'],
-        contact: data['contactName'],
-        phone: data['contactPhone'],
-        latlng: latlng,
-        verified: data['verified'] ?? false,
-        verifiedBy: data['verifiedBy'],
-        createdBy: data['createdBy'],
-        rideType: data['rideType'] != null
-            ? RideType.values[data['rideType']]
-            : RideType.roadRide,
-        rideDistance: data['distance'],
-        verifiedByUsers: data['verifiedByUsers'] != null
-            ? List<String>.from(data['verifiedByUsers'])
-            : [],
-        verificationCount: data['verificationCount'] ?? 0,
-        averageRating: data['averageRating']?.toDouble(),
-        totalRatings: data['totalRatings'] ?? 0,
-        userRatings: data['userRatings'] != null
-            ? Map<String, int>.from(data['userRatings'])
-            : {},
-        routeUrl: data['routeUrl'],
-        difficulty: data['difficulty'] != null
-            ? RideDifficulty.values[data['difficulty']]
-            : null,
-      );
-    } catch (e) {
-      debugPrint('Error creating Ride from cached data: $e');
-      return null;
-    }
-  }
-
-  void setRideDetailsFromCache(String docId) {
-    final data = _ridesData[docId];
-    if (data == null) {
-      debugPrint(
-          'No cached data found for ride $docId, falling back to Firestore');
-      getRideDetails();
-      return;
-    }
-
-    try {
-      GeoPoint pos = data["latlng"];
-      LatLng latlng = LatLng(pos.latitude, pos.longitude);
-      rideLatlng = latlng;
-      rideTitle = data['title'];
-      rideDesc = data['desc'];
-      rideSnippet = data['snippet'];
-      rideDistance = data['distance'];
-      rideDow = DayOfWeekType.values[data['dow']];
-      rideStartPointDesc = data['startPointDesc'];
-      rideContact = data['contactName'];
-      ridePhone = data['contactPhone'];
-      rideVerified = data['verified'];
-      rideVerifiedBy = data["verifiedBy"];
-      DateTime myDateTime = (data['startTime']).toDate();
-      rideStartTime = TimeOfDay.fromDateTime(myDateTime);
-      rideType = RideType.values[data['rideType']];
-    } catch (e) {
-      debugPrint(
-          'Error loading cached ride data: $e, falling back to Firestore');
-      getRideDetails();
-    }
-  }
-
-  Future getRideDetails() async {
-    await ridesDataFS.doc(rideID).get().then((ride) {
-      // you can access the values by
-
-      GeoPoint pos = ride["latlng"];
-      LatLng latlng = LatLng(pos.latitude, pos.longitude);
-      rideLatlng = latlng;
-      rideTitle = ride['title'];
-      rideDesc = ride['desc'];
-      rideSnippet = ride['snippet'];
-      rideDistance = ride['distance'];
-      rideDow = DayOfWeekType.values[ride['dow']];
-      rideStartPointDesc = ride['startPointDesc'];
-      rideContact = ride['contactName'];
-      ridePhone = ride['contactPhone'];
-      rideVerified = ride['verified'];
-      rideVerifiedBy = ride["verifiedBy"];
-      DateTime myDateTime = (ride['startTime']).toDate();
-      rideStartTime = TimeOfDay.fromDateTime(myDateTime);
-      rideType = RideType.values[ride['rideType']];
-    });
-  }
-
-  Widget showSearch() {
-    //Providers
-    final allSearchResults = ref.watch(placeResultsProvider);
-    final searchFlag = ref.watch(searchToggleProvider);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(15.0, 40.0, 15.0, 5.0),
-      child: Column(children: [
-        Container(
-          height: 50.0,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10.0),
-            //color: Colors.white,
-          ),
-          child: TextFormField(
-            controller: _searchController,
-            decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20.0, vertical: 15.0),
-                border: InputBorder.none,
-                hintText: 'Search',
-                suffixIcon: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        searchToggle = false;
-                        _searchController.text = '';
-                        if (searchFlag.searchToggle) {
-                          ref
-                              .read(searchToggleProvider.notifier)
-                              .toggleSearch();
-                        }
-                      });
-                    },
-                    icon: const Icon(Icons.close))),
-            onChanged: (value) {
-              if (_debounce?.isActive ?? false) {
-                _debounce?.cancel();
-              }
-              _debounce = Timer(const Duration(milliseconds: _searchDebounceMs),
-                  () async {
-                if (value.length > 2) {
-                  if (!searchFlag.searchToggle) {
-                    ref.read(searchToggleProvider.notifier).toggleSearch();
-                  }
-
-                  List<AutoCompleteResult> searchResults =
-                      await MapServices().searchPlaces(value);
-
-                  ref
-                      .read(placeResultsProvider.notifier)
-                      .setResults(searchResults);
-                } else {
-                  List<AutoCompleteResult> emptyList = [];
-                  ref.read(placeResultsProvider.notifier).setResults(emptyList);
-                }
-              });
-            },
-          ),
-        )
-      ]),
-    );
   }
 
   void showDetails() async {
-    debugPrint('=== showDetails called for rideID: $rideID ===');
-
     try {
-      // Fetch the ride directly from Firestore instead of using cache
       final repository = RideRepository();
       final ride = await repository.getRideById(rideID);
 
       if (ride == null) {
-        debugPrint('Ride not found in Firestore for ID: $rideID');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Ride not found')),
@@ -1377,35 +751,20 @@ class MapScreenState extends ConsumerState<MapScreen> {
         return;
       }
 
-      debugPrint(
-          'Successfully fetched ride from Firestore, checking permissions...');
       final canEdit = _canUserEditRide(ride);
-      debugPrint('User can edit: $canEdit');
 
       if (!mounted) return;
 
-      debugPrint('Opening RideInfoDialog...');
       showDialog(
         context: context,
         builder: (context) => RideInfoDialog(
           ride: ride,
           rideId: rideID,
-          onEdit: () {
-            debugPrint('Edit button pressed');
-            // Close the dialog and open the edit dialog
-            _editRideDialog(ride);
-          },
-          onDelete: canEdit
-              ? () {
-                  debugPrint('Delete button pressed');
-                  // Handle ride deletion
-                  _deleteRide(rideID);
-                }
-              : null,
+          onEdit: canEdit ? () => _editRideDialog(ride) : null,
+          onDelete: canEdit ? () => _deleteRide(rideID) : null,
         ),
       );
     } catch (e) {
-      debugPrint('Error fetching ride details: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load ride details: $e')),
@@ -1416,112 +775,33 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   bool _canUserEditRide(Ride ride) {
     final currentUser = FirebaseAuth.instance.currentUser;
-    debugPrint('=== _canUserEditRide check ===');
-    debugPrint('Current user: ${currentUser?.uid}');
-    debugPrint('Ride created by: ${ride.createdBy}');
-
-    if (currentUser == null) {
-      debugPrint('No current user - cannot edit');
-      return false;
-    }
-
-    // Allow editing if user created the ride
-    final canEdit = ride.createdBy == currentUser.uid;
-    debugPrint('Can edit: $canEdit');
-    return canEdit;
+    return currentUser != null && ride.createdBy == currentUser.uid;
   }
 
   Future<void> _deleteRide(String rideId) async {
-    debugPrint('=== _deleteRide called for rideId: $rideId ===');
+    try {
+      final repository = RideRepository();
+      await repository.deleteRide(rideId);
+      await _loadRidesInViewport();
 
-    // Show loading indicator
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Deleting ride...'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-
-    // Retry logic for Firestore connectivity issues
-    int maxRetries = 3;
-    int retryDelay = 1; // seconds
-
-    for (int attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        debugPrint('Delete attempt $attempt of $maxRetries');
-        final repository = RideRepository();
-        debugPrint('Calling repository.deleteRide...');
-        await repository.deleteRide(rideId);
-        debugPrint('Repository.deleteRide completed successfully');
-
-        // Refresh the map data
-        debugPrint('Refreshing map data...');
-        await _loadRidesInViewport();
-        debugPrint('Map data refresh completed');
-
-        if (mounted) {
-          debugPrint('Showing success message');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Ride deleted successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-        return; // Success - exit the retry loop
-      } catch (e) {
-        debugPrint('Delete attempt $attempt failed: $e');
-
-        // Check if it's a connectivity issue that we should retry
-        bool shouldRetry = e.toString().contains('unavailable') ||
-            e.toString().contains('timeout') ||
-            e.toString().contains('network');
-
-        if (shouldRetry && attempt < maxRetries) {
-          debugPrint('Retrying in $retryDelay seconds...');
-          await Future.delayed(Duration(seconds: retryDelay));
-          retryDelay *= 2; // Exponential backoff
-        } else {
-          // Final failure or non-retryable error
-          debugPrint('Final error in _deleteRide: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(shouldRetry
-                    ? 'Failed to delete ride after $maxRetries attempts. Please check your connection and try again.'
-                    : 'Failed to delete ride: ${e.toString().replaceAll('RideRepositoryException: Failed to delete ride: ', '')}'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          }
-          break;
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ride deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete ride: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
-  }
-
-  Widget _editDetailsButton() {
-    return ElevatedButton(
-      onPressed: () {
-        Navigator.pop(context);
-        // Note: This function may need current ride data for proper editing
-        newRideDialog(rideLatlng!, true);
-      },
-      child: const Text("Edit"),
-    );
-  }
-
-  Widget _cancelDetailsButton() {
-    return ElevatedButton(
-      onPressed: () {
-        Navigator.pop(context);
-      },
-      child: const Text("Close"),
-    );
   }
 
   Widget placeMap() {
@@ -1542,24 +822,21 @@ class MapScreenState extends ConsumerState<MapScreen> {
       trafficEnabled: false,
       buildingsEnabled: true,
       indoorViewEnabled: true,
-      liteModeEnabled: false, // Ensure full map mode
+      liteModeEnabled: false,
       gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
         Factory<OneSequenceGestureRecognizer>(
           () => EagerGestureRecognizer(),
         ),
       },
       initialCameraPosition: _startPosition,
-      markers: _saveMarkers,
+      markers: _markers,
       onLongPress: (point) {
         rideLatlng = point;
         newRideDialog(point, false);
       },
       onTap: (point) {
-        debugPrint('Map tapped at: ${point.latitude}, ${point.longitude}');
-        // Don't center the map on tap - let users drag to navigate naturally
-        // Only update the current position for reference
         setState(() {
-          // Just update the state without moving the camera
+          // Update state without moving camera
         });
       },
     );
@@ -1570,11 +847,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    //Providers - removed unused provider watchers since MapSearchWidget handles its own state
-
     return Scaffold(
       appBar: AppBar(
-          toolbarHeight: 50.0, centerTitle: false, title: const Text(appTitle)),
+        toolbarHeight: 50.0,
+        centerTitle: false,
+        title: const Text(appTitle),
+      ),
       drawer: AppDrawer(
         onProfileTap: goToProfilePage,
         onSignOut: signUserOut,
@@ -1603,7 +881,6 @@ class MapScreenState extends ConsumerState<MapScreen> {
                     });
                   },
                 ),
-                //showDetailsToggle ? showDetails1() : Container(),
               ],
             ),
             const Gap(10),
@@ -1622,24 +899,12 @@ class MapScreenState extends ConsumerState<MapScreen> {
                   searchToggle = true;
                 });
               },
-              icon: const Icon(
-                Icons.search,
-                size: 24,
-              ),
+              icon: const Icon(Icons.search, size: 24),
               label: const Text('Search'),
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Theme.of(context).colorScheme.onPrimary,
             ),
           ),
-          // Padding(
-          //   padding: const EdgeInsets.only(left: 20.0),
-          //   child: FloatingActionButton(
-          //     onPressed: () {
-          //       addRidesToFirestore();
-          //     },
-          //     child: const Icon(Icons.add),
-          //   ),
-          // ),
         ],
       ),
     );
@@ -1647,42 +912,433 @@ class MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> gotoSearchedPlace(double lat, double lng) async {
     final GoogleMapController controller = await mapController.future;
-
-    controller.animateCamera(CameraUpdate.newCameraPosition(
-        CameraPosition(target: LatLng(lat, lng), zoom: _defaultZoom)));
-    showDetailsToggle = false;
-    _setMarker();
-  }
-
-  Widget buildListItem(AutoCompleteResult placeItem, searchFlag) {
-    return Padding(
-      padding: const EdgeInsets.all(5.0),
-      child: GestureDetector(
-        onTapDown: (_) {
-          FocusManager.instance.primaryFocus?.unfocus();
-        },
-        onTap: () async {
-          var place = await MapServices().getPlace(placeItem.placeId);
-          gotoSearchedPlace(place['geometry']['location']['lat'],
-              place['geometry']['location']['lng']);
-          ref.read(searchToggleProvider.notifier).toggleSearch();
-        },
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.location_on, color: Colors.green, size: 25.0),
-            const SizedBox(width: 4.0),
-            SizedBox(
-              height: 40.0,
-              width: MediaQuery.of(context).size.width - 75.0,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(placeItem.description ?? ''),
-              ),
-            )
-          ],
-        ),
+    await controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: LatLng(lat, lng), zoom: _defaultZoom),
       ),
     );
+    showDetailsToggle = false;
+  }
+
+  /// AGGRESSIVE FIX 2: Set camera position BEFORE adding items
+  Future<void> _setCurrentCameraPositionThenAddItems(
+      List<ClusterRideMarker> newClusterItems, int totalRides) async {
+    try {
+      debugPrint('🔧 === _setCurrentCameraPositionThenAddItems() STARTED ===');
+      final GoogleMapController controller = await mapController.future;
+      final bounds = await controller.getVisibleRegion();
+      final currentPosition = CameraPosition(
+        target: LatLng(
+          (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
+          (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
+        ),
+        zoom: await controller.getZoomLevel(),
+      );
+
+      debugPrint(
+          '🔧 Step 1: Current camera position: ${currentPosition.target} (zoom: ${currentPosition.zoom})');
+      debugPrint('🔧 Step 2: Setting camera position on cluster manager FIRST');
+      _clusterManager.onCameraMove(currentPosition);
+
+      // Wait for camera position to register
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      debugPrint(
+          '🔧 Step 3: RECREATING cluster manager with items (instead of setItems)');
+      setState(() {
+        _clusterItems = newClusterItems;
+        _totalRidesLoaded = totalRides;
+        _isLoadingRides = false;
+
+        // AGGRESSIVE FIX 3: Recreate cluster manager with items
+        debugPrint(
+            '🔧 Creating NEW cluster manager with ${_clusterItems.length} items');
+        _clusterManager = ClusterManager<ClusterRideMarker>(
+          _clusterItems, // Pass items directly to constructor
+          _updateMarkers,
+          markerBuilder: _buildClusterMarker,
+          levels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+          extraPercent: 0.0,
+          stopClusteringZoom: 11.0,
+        );
+      });
+
+      debugPrint('🔧 Step 4: Setting camera position on NEW cluster manager');
+      _clusterManager.onCameraMove(currentPosition);
+
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      debugPrint('🔧 Step 5: Forcing NEW cluster manager update');
+      _clusterManager.updateMap();
+
+      // AGGRESSIVE FIX 4: Try different zoom configurations
+      debugPrint(
+          '🔧 AGGRESSIVE FIX 4: Testing multiple cluster configurations');
+
+      final configurations = [
+        {'stopZoom': 0.0, 'desc': 'Force individual markers (stopZoom=0)'},
+        {'stopZoom': 20.0, 'desc': 'Force clustering (stopZoom=20)'},
+        {'stopZoom': 11.0, 'desc': 'Normal config (stopZoom=11)'},
+      ];
+
+      for (int configIndex = 0;
+          configIndex < configurations.length;
+          configIndex++) {
+        final config = configurations[configIndex];
+        debugPrint('🔧 Testing config ${configIndex + 1}: ${config['desc']}');
+
+        setState(() {
+          _clusterManager = ClusterManager<ClusterRideMarker>(
+            _clusterItems,
+            _updateMarkers,
+            markerBuilder: _buildClusterMarker,
+            levels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            extraPercent: 0.0,
+            stopClusteringZoom: config['stopZoom'] as double,
+          );
+        });
+
+        _clusterManager.onCameraMove(currentPosition);
+        await Future.delayed(const Duration(milliseconds: 300));
+        _clusterManager.updateMap();
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        debugPrint(
+            '🔧 Config ${configIndex + 1} tested, current markers: ${_markers.length}');
+
+        // If this config works, break early
+        if (_markers.isNotEmpty) {
+          debugPrint(
+              '🎉 SUCCESS! Config ${configIndex + 1} produced ${_markers.length} markers!');
+          break;
+        }
+      }
+
+      // Final update attempts
+      for (int i = 1; i <= 3; i++) {
+        await Future.delayed(Duration(milliseconds: 200 * i));
+        if (mounted) {
+          debugPrint('🔧 Final update attempt $i');
+          _clusterManager.updateMap();
+        }
+      }
+
+      debugPrint(
+          '🔧 === _setCurrentCameraPositionThenAddItems() COMPLETED ===');
+    } catch (e) {
+      debugPrint('❌ Error in _setCurrentCameraPositionThenAddItems: $e');
+    }
+  }
+
+  /// Get current camera position and update cluster manager with proper sequence
+  Future<void> _getCurrentCameraAndUpdate() async {
+    try {
+      debugPrint('🔄 === _getCurrentCameraAndUpdate() STARTED ===');
+      final GoogleMapController controller = await mapController.future;
+      final bounds = await controller.getVisibleRegion();
+      final currentPosition = CameraPosition(
+        target: LatLng(
+          (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
+          (bounds.northeast.longitude + bounds.southwest.longitude) / 2,
+        ),
+        zoom: await controller.getZoomLevel(),
+      );
+
+      debugPrint(
+          '🔄 Current camera position: ${currentPosition.target} (zoom: ${currentPosition.zoom})');
+
+      // Critical: Set camera position FIRST, then update
+      debugPrint('🔄 Step 1: Setting camera position');
+      _clusterManager.onCameraMove(currentPosition);
+
+      // Small delay to let camera position register
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      debugPrint('🔄 Step 2: Triggering initial cluster update');
+      _clusterManager.updateMap();
+
+      // Multiple update attempts with increasing delays
+      for (int i = 1; i <= 3; i++) {
+        await Future.delayed(Duration(milliseconds: 100 * i));
+        if (mounted) {
+          debugPrint('🔄 Step ${i + 2}: Update attempt $i');
+          _clusterManager.updateMap();
+        }
+      }
+
+      debugPrint('🔄 === _getCurrentCameraAndUpdate() COMPLETED ===');
+    } catch (e) {
+      debugPrint('❌ Error in _getCurrentCameraAndUpdate: $e');
+    }
+  }
+
+  /// NUCLEAR OPTION: Custom clustering implementation that actually works
+  Future<Set<Marker>> _createCustomClusteredMarkers(List<Ride> rides) async {
+    debugPrint('🚀 === _createCustomClusteredMarkers() STARTED ===');
+    debugPrint('🚀 Processing ${rides.length} rides for custom clustering');
+
+    final markers = <Marker>{};
+    final GoogleMapController controller = await mapController.future;
+    final currentZoom = await controller.getZoomLevel();
+
+    debugPrint('🚀 Current zoom level: $currentZoom');
+
+    // Custom clustering logic based on zoom level
+    if (currentZoom >= 12.0) {
+      // High zoom: Show individual markers
+      debugPrint(
+          '🚀 High zoom ($currentZoom >= 12.0): Creating individual markers');
+      for (final ride in rides) {
+        if (ride.latlng != null && ride.id != null) {
+          final marker = Marker(
+            markerId: MarkerId('custom_${ride.id}'),
+            position: ride.latlng!,
+            infoWindow: InfoWindow(
+              title: ride.title ?? 'Untitled Ride',
+              snippet: ride.snippet ?? '',
+            ),
+            icon: _iconsLoaded && _rideTypeIcons.containsKey(ride.rideType)
+                ? _rideTypeIcons[ride.rideType]!
+                : BitmapDescriptor.defaultMarker,
+            onTap: () {
+              rideID = ride.id!;
+              showDetails();
+            },
+          );
+          markers.add(marker);
+          debugPrint(
+              '🚀 Created individual marker: ${ride.title} at ${ride.latlng}');
+        }
+      }
+    } else {
+      // Low zoom: Create clusters
+      debugPrint('🚀 Low zoom ($currentZoom < 12.0): Creating clusters');
+      final clusters = _createCustomClusters(rides, currentZoom);
+
+      for (final cluster in clusters) {
+        final marker = await _createCustomClusterMarker(cluster);
+        markers.add(marker);
+      }
+    }
+
+    debugPrint('🚀 Created ${markers.length} custom clustered markers');
+    debugPrint('🚀 === _createCustomClusteredMarkers() COMPLETED ===');
+    return markers;
+  }
+
+  /// Create custom clusters based on distance
+  List<CustomCluster> _createCustomClusters(List<Ride> rides, double zoom) {
+    debugPrint('🚀 Creating custom clusters for zoom level: $zoom');
+
+    final clusters = <CustomCluster>[];
+    final processedRides = <Ride>{};
+
+    // Distance threshold based on zoom (higher zoom = smaller threshold)
+    final distanceThreshold = _getDistanceThreshold(zoom);
+    debugPrint('🚀 Using distance threshold: ${distanceThreshold}km');
+
+    for (final ride in rides) {
+      if (processedRides.contains(ride) || ride.latlng == null) continue;
+
+      final cluster = CustomCluster(rides: [ride]);
+      processedRides.add(ride);
+
+      // Find nearby rides to cluster
+      for (final otherRide in rides) {
+        if (processedRides.contains(otherRide) || otherRide.latlng == null)
+          continue;
+
+        final distance = _calculateDistance(
+          ride.latlng!.latitude,
+          ride.latlng!.longitude,
+          otherRide.latlng!.latitude,
+          otherRide.latlng!.longitude,
+        );
+
+        if (distance <= distanceThreshold) {
+          cluster.rides.add(otherRide);
+          processedRides.add(otherRide);
+        }
+      }
+
+      clusters.add(cluster);
+      debugPrint(
+          '🚀 Created cluster with ${cluster.rides.length} rides at ${cluster.center}');
+    }
+
+    debugPrint('🚀 Total clusters created: ${clusters.length}');
+    return clusters;
+  }
+
+  /// Get distance threshold based on zoom level
+  double _getDistanceThreshold(double zoom) {
+    // More aggressive clustering at lower zoom levels
+    if (zoom <= 8) return 50.0; // 50km
+    if (zoom <= 10) return 20.0; // 20km
+    if (zoom <= 11) return 10.0; // 10km
+    return 5.0; // 5km
+  }
+
+  /// Create marker for custom cluster
+  Future<Marker> _createCustomClusterMarker(CustomCluster cluster) async {
+    final center = cluster.center;
+
+    if (cluster.rides.length == 1) {
+      // Single marker
+      final ride = cluster.rides.first;
+      debugPrint('🚀 Creating single marker for: ${ride.title}');
+      return Marker(
+        markerId: MarkerId('custom_single_${ride.id}'),
+        position: ride.latlng!,
+        infoWindow: InfoWindow(
+          title: ride.title ?? 'Untitled Ride',
+          snippet: ride.snippet ?? '',
+        ),
+        icon: _iconsLoaded && _rideTypeIcons.containsKey(ride.rideType)
+            ? _rideTypeIcons[ride.rideType]!
+            : BitmapDescriptor.defaultMarker,
+        onTap: () {
+          rideID = ride.id!;
+          showDetails();
+        },
+      );
+    } else {
+      // Cluster marker
+      debugPrint(
+          '🚀 Creating cluster marker for ${cluster.rides.length} rides');
+      return Marker(
+        markerId:
+            MarkerId('custom_cluster_${center.latitude}_${center.longitude}'),
+        position: center,
+        infoWindow: InfoWindow(
+          title: '${cluster.rides.length} Rides',
+          snippet: 'Tap to view details',
+        ),
+        icon:
+            await ClusterIconService.getCachedClusterIcon(cluster.rides.length),
+        onTap: () => _showCustomClusterDialog(cluster),
+      );
+    }
+  }
+
+  /// Show dialog for custom cluster
+  void _showCustomClusterDialog(CustomCluster cluster) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${cluster.rides.length} Rides in this area'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView.builder(
+            itemCount: cluster.rides.length,
+            itemBuilder: (context, index) {
+              final ride = cluster.rides[index];
+              return ListTile(
+                title: Text(ride.title ?? 'Untitled Ride'),
+                subtitle: Text(ride.snippet ?? ''),
+                onTap: () {
+                  Navigator.pop(context);
+                  rideID = ride.id!;
+                  showDetails();
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Calculate distance between two points (reused existing method)
+  double _calculateDistance(
+      double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Earth radius in kilometers
+    double dLat = (lat2 - lat1) * (3.14159 / 180);
+    double dLon = (lon2 - lon1) * (3.14159 / 180);
+    double a = (dLat / 2).abs() * (dLat / 2).abs() +
+        (lat1 * 3.14159 / 180).abs() *
+            (lat2 * 3.14159 / 180).abs() *
+            (dLon / 2).abs() *
+            (dLon / 2).abs();
+    double c = 2 * (a.abs().clamp(0.0, 1.0));
+    return earthRadius * c;
+  }
+
+  /// Create simple markers directly without clustering (for debugging)
+  Set<Marker> _createSimpleMarkers(List<Ride> rides) {
+    debugPrint('🔧 === _createSimpleMarkers() STARTED ===');
+    debugPrint('🔧 Creating simple markers for ${rides.length} rides');
+
+    final markers = <Marker>{};
+
+    for (int i = 0; i < rides.length; i++) {
+      final ride = rides[i];
+      if (ride.latlng != null && ride.id != null) {
+        final marker = Marker(
+          markerId: MarkerId('simple_${ride.id}'),
+          position: ride.latlng!,
+          infoWindow: InfoWindow(
+            title: ride.title ?? 'Untitled Ride',
+            snippet: ride.snippet ?? '',
+          ),
+          icon: _iconsLoaded && _rideTypeIcons.containsKey(ride.rideType)
+              ? _rideTypeIcons[ride.rideType]!
+              : BitmapDescriptor.defaultMarker,
+          onTap: () {
+            rideID = ride.id!;
+            showDetails();
+          },
+        );
+        markers.add(marker);
+        debugPrint(
+            '🔧 Created simple marker $i: ${ride.title} at ${ride.latlng}');
+      } else {
+        debugPrint('🔧 Skipped ride $i: ${ride.title} (missing latlng or id)');
+      }
+    }
+
+    debugPrint('🔧 Created ${markers.length} simple markers');
+    debugPrint('🔧 === _createSimpleMarkers() COMPLETED ===');
+    return markers;
+  }
+}
+
+/// Custom cluster class for grouping nearby markers
+class CustomCluster {
+  final List<Ride> rides;
+  final int size;
+
+  CustomCluster({
+    required this.rides,
+  }) : size = rides.length;
+
+  bool get isCluster => rides.length > 1;
+
+  /// Calculate the center position of the cluster
+  LatLng get center {
+    if (rides.isEmpty) return const LatLng(0, 0);
+
+    double totalLat = 0;
+    double totalLng = 0;
+    int count = 0;
+
+    for (final ride in rides) {
+      if (ride.latlng != null) {
+        totalLat += ride.latlng!.latitude;
+        totalLng += ride.latlng!.longitude;
+        count++;
+      }
+    }
+
+    if (count == 0) return const LatLng(0, 0);
+
+    return LatLng(totalLat / count, totalLng / count);
   }
 }
